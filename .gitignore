@@ -1,0 +1,7 @@
+vault.module
+*.out
+*.json
+*.age
+*.log
+*.txt
+.DS_Store

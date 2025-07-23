@@ -1,0 +1,65 @@
+// File: cmd/import.go
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"vault.module/internal/actions"
+	"vault.module/internal/config"
+	"vault.module/internal/vault"
+
+	"github.com/spf13/cobra"
+)
+
+var importFormat string
+var importConflict string
+
+var importCmd = &cobra.Command{
+	Use:   "import <FILE_PATH>",
+	Short: "Bulk imports accounts from a file into the active vault.",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		activeVault, err := config.GetActiveVault()
+		if err != nil {
+			return err
+		}
+
+		if programmaticMode {
+			return fmt.Errorf("this command is not available in programmatic mode")
+		}
+		filePath := args[0]
+
+		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+
+		// FIX: Pass the whole activeVault struct
+		v, err := vault.LoadVault(activeVault)
+		if err != nil {
+			return fmt.Errorf("failed to load vault: %w", err)
+		}
+
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to read file '%s': %w", filePath, err)
+		}
+
+		updatedVault, report, err := actions.ImportWallets(v, content, importFormat, importConflict)
+		if err != nil {
+			return err
+		}
+
+		// FIX: Pass the whole activeVault struct
+		if err := vault.SaveVault(activeVault, updatedVault); err != nil {
+			return fmt.Errorf("failed to save vault: %w", err)
+		}
+
+		fmt.Println("✅", report)
+		return nil
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(importCmd)
+	importCmd.Flags().StringVar(&importFormat, "format", "json", "File format (json or key-value).")
+	importCmd.Flags().StringVar(&importConflict, "on-conflict", "skip", "Behavior on conflict (skip, overwrite, fail).")
+}
