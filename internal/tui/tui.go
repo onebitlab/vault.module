@@ -219,7 +219,6 @@ func newModel() model {
 
 	// Setup spinner
 	spinner := spinner.New()
-	spinner.Spinner = spinner.Dot
 	spinner.Style = s.Status
 
 	// Setup main list for vaults/wallets
