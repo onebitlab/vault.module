@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/go-bip39"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
+	"vault.module/internal/security"
 	"vault.module/internal/vault"
 )
 
@@ -33,14 +34,14 @@ func (m *CosmosManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet,
 	address := privKey.PubKey().Address().String()
 
 	return vault.Wallet{
-		Mnemonic:       mnemonic,
+		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: CosmosDerivationPath,
 		Addresses: []vault.Address{
 			{
 				Index:      0,
 				Path:       path,
 				Address:    address,
-				PrivateKey: fmt.Sprintf("%X", privKey.Bytes()),
+				PrivateKey: security.NewSecureString(fmt.Sprintf("%X", privKey.Bytes())),
 			},
 		},
 	}, nil
@@ -54,14 +55,14 @@ func (m *CosmosManager) CreateWalletFromPrivateKey(pk string) (vault.Wallet, err
 
 // DeriveNextAddress derives the next address for a Cosmos HD wallet.
 func (m *CosmosManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault.Address, error) {
-	if wallet.Mnemonic == "" {
+	if wallet.Mnemonic == nil || wallet.Mnemonic.String() == "" {
 		return wallet, vault.Address{}, fmt.Errorf("derivation is only possible for HD wallets (with a mnemonic)")
 	}
 
 	nextIndex := len(wallet.Addresses)
 	path := fmt.Sprintf("%s/%d", wallet.DerivationPath, nextIndex)
 
-	privKey, err := deriveCosmosPrivateKey(wallet.Mnemonic, path)
+	privKey, err := deriveCosmosPrivateKey(wallet.Mnemonic.String(), path)
 	if err != nil {
 		return wallet, vault.Address{}, err
 	}
@@ -72,7 +73,7 @@ func (m *CosmosManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, va
 		Index:      nextIndex,
 		Path:       path,
 		Address:    address,
-		PrivateKey: fmt.Sprintf("%X", privKey.Bytes()),
+		PrivateKey: security.NewSecureString(fmt.Sprintf("%X", privKey.Bytes())),
 	}
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)

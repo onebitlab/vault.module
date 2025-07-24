@@ -115,13 +115,14 @@ func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy, vaultT
 	overwrittenCount := 0
 
 	for prefix, newWalletData := range walletsToImport {
-		if _, exists := v[prefix]; exists {
+		if oldWallet, exists := v[prefix]; exists {
 			switch conflictPolicy {
 			case constants.ConflictPolicySkip:
 				skippedCount++
 				continue
 			case constants.ConflictPolicyOverwrite:
 				overwrittenCount++
+				oldWallet.Clear() // очищаем секреты старого кошелька
 			case constants.ConflictPolicyFail:
 				return v, "", fmt.Errorf("wallet '%s' already exists", prefix)
 			}

@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"github.com/tyler-smith/go-bip39"
+	"vault.module/internal/security"
 	"vault.module/internal/vault"
 )
 
@@ -45,14 +46,14 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 	}
 
 	return vault.Wallet{
-		Mnemonic:       mnemonic,
+		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: EVMDerivationPath,
 		Addresses: []vault.Address{
 			{
 				Index:      0,
 				Path:       path,
 				Address:    address,
-				PrivateKey: privateKeyToEVMString(privateKey),
+				PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
 			},
 		},
 	}, nil
@@ -80,7 +81,7 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 				Index:      0,
 				Path:       "imported",
 				Address:    address,
-				PrivateKey: privateKeyToEVMString(privateKey),
+				PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
 			},
 		},
 	}, nil
@@ -88,13 +89,13 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 
 // DeriveNextAddress derives the next address for an HD wallet.
 func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault.Address, error) {
-	if wallet.Mnemonic == "" {
+	if wallet.Mnemonic == nil || wallet.Mnemonic.String() == "" {
 		return wallet, vault.Address{}, fmt.Errorf("derivation is only possible for HD wallets (with a mnemonic)")
 	}
 
 	nextIndex := len(wallet.Addresses)
 
-	hdWallet, err := createEVMWalletFromMnemonic(wallet.Mnemonic)
+	hdWallet, err := createEVMWalletFromMnemonic(wallet.Mnemonic.String())
 	if err != nil {
 		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %w", err)
 	}
@@ -114,7 +115,7 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 		Index:      nextIndex,
 		Path:       path,
 		Address:    address,
-		PrivateKey: privateKeyToEVMString(privateKey),
+		PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
 	}
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)

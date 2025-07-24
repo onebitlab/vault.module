@@ -11,39 +11,54 @@ import (
 
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
+	"vault.module/internal/security"
 )
 
 // Address defines the structure for a single address.
 type Address struct {
-	Index      int    `json:"index"`
-	Path       string `json:"path"`
-	Address    string `json:"address"`
-	PrivateKey string `json:"privateKey"`
+	Index      int                    `json:"index"`
+	Path       string                 `json:"path"`
+	Address    string                 `json:"address"`
+	PrivateKey *security.SecureString `json:"-"`
 }
 
 // Wallet defines the structure for a wallet, which can be HD or a single key.
 type Wallet struct {
-	Mnemonic       string    `json:"mnemonic,omitempty"`
-	DerivationPath string    `json:"derivationPath,omitempty"`
-	Addresses      []Address `json:"addresses"`
-	Notes          string    `json:"notes"`
-	Tags           []string  `json:"tags"`
+	Mnemonic       *security.SecureString `json:"-"`
+	DerivationPath string                 `json:"derivationPath,omitempty"`
+	Addresses      []Address              `json:"addresses"`
+	Notes          string                 `json:"notes"`
+	Tags           []string               `json:"tags"`
 }
 
 // Sanitize creates a "clean" copy of the wallet for safe display.
 func (w Wallet) Sanitize() Wallet {
 	sanitizedWallet := w
-	if sanitizedWallet.Mnemonic != "" {
-		sanitizedWallet.Mnemonic = "[REDACTED]"
+	if sanitizedWallet.Mnemonic != nil && sanitizedWallet.Mnemonic.String() != "" {
+		sanitizedWallet.Mnemonic = security.NewSecureString("[REDACTED]")
 	}
 
 	sanitizedAddresses := make([]Address, len(w.Addresses))
 	for i, addr := range w.Addresses {
 		sanitizedAddresses[i] = addr
-		sanitizedAddresses[i].PrivateKey = "[REDACTED]"
+		sanitizedAddresses[i].PrivateKey = security.NewSecureString("[REDACTED]")
 	}
 	sanitizedWallet.Addresses = sanitizedAddresses
 	return sanitizedWallet
+}
+
+// Clear clears all secrets from the wallet.
+func (w *Wallet) Clear() {
+	if w.Mnemonic != nil {
+		w.Mnemonic.Clear()
+		w.Mnemonic = nil
+	}
+	for i := range w.Addresses {
+		if w.Addresses[i].PrivateKey != nil {
+			w.Addresses[i].PrivateKey.Clear()
+			w.Addresses[i].PrivateKey = nil
+		}
+	}
 }
 
 // Vault is the root structure of our vault (the JSON file).
