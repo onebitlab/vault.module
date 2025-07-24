@@ -19,7 +19,6 @@ type Address struct {
 	Path       string `json:"path"`
 	Address    string `json:"address"`
 	PrivateKey string `json:"privateKey"`
-	Label      string `json:"label"`
 }
 
 // Wallet defines the structure for a wallet, which can be HD or a single key.

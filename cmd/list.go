@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
@@ -13,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var listTag string
 var listJson bool
 
 var listCmd = &cobra.Command{
@@ -36,19 +34,7 @@ var listCmd = &cobra.Command{
 		}
 
 		filteredPrefixes := make([]string, 0, len(v))
-		for prefix, wallet := range v {
-			if listTag != "" {
-				tagFound := false
-				for _, tag := range wallet.Tags {
-					if strings.EqualFold(tag, listTag) {
-						tagFound = true
-						break
-					}
-				}
-				if !tagFound {
-					continue
-				}
-			}
+		for prefix := range v {
 			filteredPrefixes = append(filteredPrefixes, prefix)
 		}
 
@@ -77,8 +63,7 @@ var listCmd = &cobra.Command{
 		} else {
 			fmt.Printf("Saved wallets in '%s' (Type: %s):\n", config.Cfg.ActiveVault, activeVault.Type)
 			for _, prefix := range filteredPrefixes {
-				wallet := v[prefix]
-				fmt.Printf("- %s (Addresses: %d, Tags: [%s])\n", prefix, len(wallet.Addresses), strings.Join(wallet.Tags, ", "))
+				fmt.Printf("- %s (Addresses: %d)\n", prefix, len(v[prefix].Addresses))
 			}
 		}
 		return nil
@@ -87,6 +72,5 @@ var listCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(listCmd)
-	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter list by tag.")
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output the list in JSON format.")
 }

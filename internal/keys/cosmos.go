@@ -41,7 +41,6 @@ func (m *CosmosManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet,
 				Path:       path,
 				Address:    address,
 				PrivateKey: fmt.Sprintf("%X", privKey.Bytes()),
-				Label:      "Primary",
 			},
 		},
 	}, nil
@@ -74,7 +73,6 @@ func (m *CosmosManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, va
 		Path:       path,
 		Address:    address,
 		PrivateKey: fmt.Sprintf("%X", privKey.Bytes()),
-		Label:      fmt.Sprintf("Address #%d", nextIndex),
 	}
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)

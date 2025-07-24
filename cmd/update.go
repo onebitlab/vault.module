@@ -51,11 +51,7 @@ var updateCmd = &cobra.Command{
 			if addressToUpdate == nil {
 				return fmt.Errorf("address with index %d not found in wallet '%s'", updateIndex, prefix)
 			}
-			newLabel, err := askForInput(fmt.Sprintf("Enter new label for address %d (current: '%s')", updateIndex, addressToUpdate.Label))
-			if err != nil {
-				return fmt.Errorf("failed to read input: %w", err)
-			}
-			addressToUpdate.Label = newLabel
+			// Ранее здесь обновлялся label, теперь ничего не делаем
 		} else {
 			newNotes, err := askForInput(fmt.Sprintf("Enter new notes for wallet '%s'", prefix))
 			if err != nil {

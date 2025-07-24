@@ -53,7 +53,6 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 				Path:       path,
 				Address:    address,
 				PrivateKey: privateKeyToEVMString(privateKey),
-				Label:      "Primary",
 			},
 		},
 	}, nil
@@ -82,7 +81,6 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 				Path:       "imported",
 				Address:    address,
 				PrivateKey: privateKeyToEVMString(privateKey),
-				Label:      "Imported",
 			},
 		},
 	}, nil
@@ -117,7 +115,6 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 		Path:       path,
 		Address:    address,
 		PrivateKey: privateKeyToEVMString(privateKey),
-		Label:      fmt.Sprintf("Address #%d", nextIndex),
 	}
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)
