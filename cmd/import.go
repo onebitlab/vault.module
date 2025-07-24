@@ -7,6 +7,7 @@ import (
 
 	"vault.module/internal/actions"
 	"vault.module/internal/config"
+	"vault.module/internal/constants"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -32,7 +33,6 @@ var importCmd = &cobra.Command{
 
 		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
 
-		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
 			return fmt.Errorf("failed to load vault: %w", err)
@@ -43,12 +43,12 @@ var importCmd = &cobra.Command{
 			return fmt.Errorf("failed to read file '%s': %w", filePath, err)
 		}
 
-		updatedVault, report, err := actions.ImportWallets(v, content, importFormat, importConflict)
+		// Pass the vault type to the action to use the correct key manager.
+		updatedVault, report, err := actions.ImportWallets(v, content, importFormat, importConflict, activeVault.Type)
 		if err != nil {
 			return err
 		}
 
-		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, updatedVault); err != nil {
 			return fmt.Errorf("failed to save vault: %w", err)
 		}
@@ -60,6 +60,6 @@ var importCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(importCmd)
-	importCmd.Flags().StringVar(&importFormat, "format", "json", "File format (json or key-value).")
-	importCmd.Flags().StringVar(&importConflict, "on-conflict", "skip", "Behavior on conflict (skip, overwrite, fail).")
+	importCmd.Flags().StringVar(&importFormat, "format", constants.FormatJSON, "File format (json or key-value).")
+	importCmd.Flags().StringVar(&importConflict, "on-conflict", constants.ConflictPolicySkip, "Behavior on conflict (skip, overwrite, fail).")
 }

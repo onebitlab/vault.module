@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"vault.module/internal/config"
+	"vault.module/internal/constants"
 )
 
 // Address defines the structure for a single address.
@@ -49,6 +50,11 @@ func (w Wallet) Sanitize() Wallet {
 // Vault is the root structure of our vault (the JSON file).
 type Vault map[string]Wallet
 
+// New creates an empty vault.
+func New() Vault {
+	return make(Vault)
+}
+
 // CheckYubiKey checks for the availability of a YubiKey.
 func CheckYubiKey() error {
 	cmd := exec.Command("age-plugin-yubikey", "--list")
@@ -72,15 +78,13 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	var ageCmd *exec.Cmd
 
 	switch details.Encryption {
-	case "yubikey":
+	case constants.EncryptionYubiKey:
 		pluginArgs := []string{"-i"}
 		if config.Cfg.YubikeySlot != "" {
 			pluginArgs = append(pluginArgs, "--slot", config.Cfg.YubikeySlot)
 		}
 		pluginCmd := exec.Command("age-plugin-yubikey", pluginArgs...)
 
-		// This is the fix for the interactive PIN prompt inside a TUI.
-		// It directly connects the command to the system's TTY.
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
 			return nil, fmt.Errorf("could not open TTY for PIN entry: %w", err)
@@ -89,8 +93,6 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		pluginCmd.Stdin = tty
 		pluginCmd.Stderr = tty
 
-		// pluginCmd.Output() will still correctly capture stdout (the identity key),
-		// while the PIN prompt (stderr) and input (stdin) go through the TTY.
 		identity, err := pluginCmd.Output()
 		if err != nil {
 			if _, ok := err.(*exec.ExitError); ok {
@@ -102,7 +104,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		ageCmd = exec.Command("age", "--decrypt", "-i", "-", details.KeyFile)
 		ageCmd.Stdin = bytes.NewReader(identity)
 
-	case "passphrase":
+	case constants.EncryptionPassphrase:
 		ageCmd = exec.Command("age", "--decrypt", "--passphrase", details.KeyFile)
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
@@ -144,7 +146,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	var cmd *exec.Cmd
 
 	switch details.Encryption {
-	case "yubikey":
+	case constants.EncryptionYubiKey:
 		if details.RecipientsFile == "" {
 			return fmt.Errorf("recipients file is required for yubikey encryption")
 		}
@@ -155,8 +157,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		cmd = exec.Command("age", args...)
 		cmd.Stdin = bytes.NewReader(data)
 
-	case "passphrase":
-		// For passphrase encryption, write data to a temporary file to avoid stdin conflicts.
+	case constants.EncryptionPassphrase:
 		tmpfile, err := os.CreateTemp("", "vault-*.json")
 		if err != nil {
 			return fmt.Errorf("could not create temp file: %w", err)
@@ -188,7 +189,6 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		cmd.Stderr = &stderr
 	}
 
-	// FIX: Rename the 'err' variable to avoid conflict with the package name.
 	if runErr := cmd.Run(); runErr != nil {
 		return fmt.Errorf("failed to encrypt vault: %v\n%s", runErr, stderr.String())
 	}

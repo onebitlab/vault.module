@@ -23,16 +23,11 @@ var deriveCmd = &cobra.Command{
 
 		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
 
-		if activeVault.Type != "EVM" {
-			return fmt.Errorf("command 'derive' is only compatible with EVM vaults, but '%s' is type '%s'", config.Cfg.ActiveVault, activeVault.Type)
-		}
-
 		if programmaticMode {
 			return fmt.Errorf("this command is not available in programmatic mode")
 		}
 		prefix := args[0]
 
-		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
 			return fmt.Errorf("failed to load vault: %w", err)
@@ -43,14 +38,14 @@ var deriveCmd = &cobra.Command{
 			return fmt.Errorf("wallet with prefix '%s' not found", prefix)
 		}
 
-		updatedWallet, newAddr, err := actions.DeriveNextAddress(wallet)
+		// Pass the vault type to the action to use the correct key manager.
+		updatedWallet, newAddr, err := actions.DeriveNextAddress(wallet, activeVault.Type)
 		if err != nil {
 			return fmt.Errorf("derivation error: %w", err)
 		}
 
 		v[prefix] = updatedWallet
 
-		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
 			return fmt.Errorf("failed to save vault: %w", err)
 		}

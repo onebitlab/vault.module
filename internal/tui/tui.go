@@ -14,6 +14,7 @@ import (
 	"vault.module/internal/actions"
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
+	"vault.module/internal/constants"
 	"vault.module/internal/vault"
 
 	"github.com/atotto/clipboard"
@@ -21,36 +22,42 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
+// --- Constants ---
+const clipboardClearTimeout = 30 * time.Second
+
 // --- Styles ---
 type Styles struct {
 	App, Title, Status, Error, Help, Bordered lipgloss.Style
-	ListItem, ListItemSelected                lipgloss.Style
-	ListFilterPrompt, ListFilterCursor        lipgloss.Style
+	Selected, Normal                          lipgloss.Style
+	TableHeader, TableRow, SelectedTableRow   lipgloss.Style
 }
 
-func NewStyles() Styles {
-	return Styles{
-		App:              lipgloss.NewStyle().Margin(1, 2),
-		Title:            lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFDF5")).Background(lipgloss.Color("#25A065")).Padding(0, 1),
-		Status:           lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"}),
-		Error:            lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5733")).Bold(true),
-		Help:             lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
-		Bordered:         lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true).Padding(1),
-		ListItem:         lipgloss.NewStyle().PaddingLeft(4),
-		ListItemSelected: lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170")),
-		ListFilterPrompt: lipgloss.NewStyle().Foreground(lipgloss.Color("205")),
-		ListFilterCursor: lipgloss.NewStyle().Foreground(lipgloss.Color("205")),
-	}
+func newStyles() Styles {
+	s := Styles{}
+	s.App = lipgloss.NewStyle().Margin(1, 2)
+	s.Title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFDF5")).Background(lipgloss.Color("#25A065")).Padding(0, 1)
+	s.Status = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "#04B575", Dark: "#04B575"})
+	s.Error = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5733")).Bold(true)
+	s.Help = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	s.Bordered = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true).Padding(1)
+	s.Selected = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Normal = lipgloss.NewStyle()
+	s.TableHeader = lipgloss.NewStyle().Bold(true)
+	s.TableRow = lipgloss.NewStyle()
+	s.SelectedTableRow = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	return s
 }
 
 // --- View State ---
 type viewState int
+type searchState int
 
 const (
 	vaultListView viewState = iota
@@ -60,7 +67,6 @@ const (
 	walletListView
 	walletDetailsView
 	walletConfirmDeleteView
-	walletConfirmQuitView
 	walletAddFormView
 	walletEditLabelView
 	walletCopyView
@@ -70,6 +76,13 @@ const (
 	walletCloneFilenameView
 	walletImportView
 	walletExportView
+	searchView
+)
+
+const (
+	searchByPrefix searchState = iota
+	searchByTag
+	searchByNotes
 )
 
 // --- Messages ---
@@ -82,36 +95,35 @@ type deriveCompletedMsg struct {
 	newAdr vault.Address
 	err    error
 }
+type clipboardClearedMsg struct{}
 
 // --- Keymaps ---
-type KeyMap struct {
-	Quit, Back, Enter, AddVault, DeleteVault, SwitchVault, AddWallet, DeleteWallet, RenameWallet, EditMeta, Clone, Import, Export, Derive, EditLabel, Copy, Yes, No, Select key.Binding
+type keyMap struct {
+	Quit, Back, Enter, AddVault, DeleteVault, SwitchVault, AddWallet, DeleteWallet, RenameWallet, EditMeta, Clone, Import, Export, Derive, EditLabel, Copy, Yes, No, Select, Search, FilterByTag key.Binding
 }
 
-func (k KeyMap) ShortHelp() []key.Binding {
+func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Quit, k.Back, k.Enter, k.SwitchVault}
 }
-func (k KeyMap) FullHelp() [][]key.Binding {
+func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.AddWallet, k.DeleteWallet, k.RenameWallet, k.EditMeta},
-		{k.Import, k.Export, k.Clone},
+		{k.Import, k.Export, k.Clone, k.Search, k.FilterByTag},
 		{k.Derive, k.EditLabel, k.Copy},
-		{k.Select},
-		{k.Yes, k.No},
-		{k.SwitchVault},
-		{k.AddVault, k.DeleteVault},
+		{k.Select, k.Yes, k.No},
+		{k.SwitchVault, k.AddVault, k.DeleteVault},
 	}
 }
 
-var Keys = KeyMap{
+var keys = keyMap{
 	Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-	Back:         key.NewBinding(key.WithKeys("esc", "backspace"), key.WithHelp("esc", "back")),
+	Back:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 	Enter:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
-	AddVault:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add vault")),
-	DeleteVault:  key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d/x", "delete vault")),
+	AddVault:     key.NewBinding(key.WithKeys("A"), key.WithHelp("shift+a", "add vault")),
+	DeleteVault:  key.NewBinding(key.WithKeys("D", "X"), key.WithHelp("shift+d/X", "delete vault")),
 	SwitchVault:  key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "switch vault")),
 	AddWallet:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add wallet")),
-	DeleteWallet: key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d/x", "delete")),
+	DeleteWallet: key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d/x", "delete wallet")),
 	RenameWallet: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "rename")),
 	EditMeta:     key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "edit meta")),
 	Clone:        key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "clone")),
@@ -123,6 +135,8 @@ var Keys = KeyMap{
 	Yes:          key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
 	No:           key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
 	Select:       key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "select")),
+	Search:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+	FilterByTag:  key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "filter by tag")),
 }
 
 // --- List Items ---
@@ -138,55 +152,117 @@ func (i walletItem) Title() string       { return i.prefix }
 func (i walletItem) Description() string { return i.desc }
 func (i walletItem) FilterValue() string { return i.prefix }
 
-// --- Main Model ---
-type model struct {
-	state                viewState
-	vaultList            list.Model
-	walletList           list.Model
-	viewport             viewport.Model
-	inputs               []textinput.Model
-	spinner              spinner.Model
-	help                 help.Model
-	keys                 KeyMap
-	styles               Styles
-	focusIndex           int
-	loadedVault          *vault.Vault
-	activeVault          config.VaultDetails
-	currentPrefix        string
-	prefixToDelete       string
-	prefixToRename       string
-	prefixToEditMetadata string
-	selectedToClone      map[string]struct{}
-	formError            error
-	loadingMsg           string
-	width, height        int
+// --- List Delegates ---
+
+func newItemDelegate(s Styles) list.DefaultDelegate {
+	d := list.NewDefaultDelegate()
+	d.Styles.NormalTitle = s.Normal
+	d.Styles.NormalDesc = s.Help
+	d.Styles.SelectedTitle = s.Selected
+	d.Styles.SelectedDesc = s.Help
+	return d
 }
 
-func NewModel() model {
-	styles := NewStyles()
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = styles.Status
+type cloneDelegate struct{ model *model }
+
+func (d *cloneDelegate) Height() int                               { return 1 }
+func (d *cloneDelegate) Spacing() int                              { return 0 }
+func (d *cloneDelegate) Update(msg tea.Msg, l *list.Model) tea.Cmd { return nil }
+func (d *cloneDelegate) Render(w io.Writer, l list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(walletItem)
+	if !ok {
+		return
+	}
+	str := i.Title()
+	if _, ok := d.model.cloneSelection[str]; ok {
+		str = "[x] " + str
+	} else {
+		str = "[ ] " + str
+	}
+	fn := d.model.styles.Normal.Render
+	if index == l.Index() {
+		fn = func(s ...string) string { return d.model.styles.Selected.Render(s...) }
+	}
+	fmt.Fprint(w, fn(str))
+}
+
+// --- Main Model ---
+type model struct {
+	state          viewState
+	previousState  viewState
+	searchState    searchState
+	vaultList      list.Model
+	walletList     list.Model
+	addressTable   table.Model
+	viewport       viewport.Model
+	inputs         []textinput.Model
+	spinner        spinner.Model
+	help           help.Model
+	keys           keyMap
+	styles         Styles
+	focusIndex     int
+	loadedVault    *vault.Vault
+	activeVault    config.VaultDetails
+	currentPrefix  string
+	prefixToDelete string
+	prefixToRename string
+	prefixToEdit   string
+	cloneSelection map[string]struct{}
+	formError      error
+	loadingMsg     string
+	statusMsg      string
+	width, height  int
+}
+
+func newModel() model {
+	s := newStyles()
+
+	// Setup spinner
+	spinner := spinner.New()
+	spinner.Spinner = spinner.Dot
+	spinner.Style = s.Status
+
+	// Setup main list for vaults/wallets
+	vaultList := list.New([]list.Item{}, newItemDelegate(s), 0, 0)
+	vaultList.SetShowHelp(false)
+	vaultList.Styles.Title = s.Title
+
 	m := model{
-		keys:    Keys,
-		styles:  styles,
-		help:    help.New(),
-		spinner: s,
+		keys:       keys,
+		styles:     s,
+		help:       help.New(),
+		spinner:    spinner,
+		vaultList:  vaultList,
+		walletList: vaultList, // Use the same list initially
 	}
 	m.help.ShowAll = true
 	return m
 }
 
 func (m *model) initLists(width, height int) {
-	defaultDelegate := list.NewDefaultDelegate()
-	m.vaultList = list.New([]list.Item{}, defaultDelegate, width, height)
-	m.vaultList.Title = "Select a Vault to Open"
-	m.vaultList.SetShowHelp(false)
-	m.vaultList.Styles.Title = m.styles.Title
-	m.refreshVaultList()
-	m.walletList = list.New([]list.Item{}, defaultDelegate, width, height)
-	m.walletList.SetShowHelp(false)
-	m.walletList.Styles.Title = m.styles.Title
+	// This is called once on the first window size message.
+	listHeight := height - lipgloss.Height(m.headerView()) - lipgloss.Height(m.footerView())
+	m.vaultList.SetSize(width, listHeight)
+	m.walletList.SetSize(width, listHeight)
+	m.viewport.Width = width
+	m.viewport.Height = listHeight
+	m.help.Width = width
+
+	// Setup address table
+	cols := []table.Column{
+		{Title: "Index", Width: 5},
+		{Title: "Label", Width: 20},
+		{Title: "Address", Width: 42},
+	}
+	m.addressTable = table.New(
+		table.WithColumns(cols),
+		table.WithFocused(true),
+		table.WithHeight(listHeight),
+	)
+	ts := table.DefaultStyles()
+	ts.Header = m.styles.TableHeader
+	ts.Selected = m.styles.SelectedTableRow
+	m.addressTable.SetStyles(ts)
 }
 
 func (m *model) refreshVaultList() {
@@ -205,9 +281,10 @@ func (m *model) refreshVaultList() {
 		items = append(items, vaultItem{name: name, desc: desc})
 	}
 	m.vaultList.SetItems(items)
+	m.vaultList.Title = "Select a Vault"
 }
 
-func (m *model) refreshWalletList() {
+func (m *model) refreshWalletList(filterTag, searchQuery string) {
 	if m.loadedVault == nil {
 		return
 	}
@@ -217,15 +294,42 @@ func (m *model) refreshWalletList() {
 		prefixes = append(prefixes, prefix)
 	}
 	sort.Strings(prefixes)
+
+	title := fmt.Sprintf("Wallets in '%s'", config.Cfg.ActiveVault)
+
 	for _, prefix := range prefixes {
 		wallet := (*m.loadedVault)[prefix]
-		items = append(items, walletItem{prefix: prefix, desc: fmt.Sprintf("Addresses: %d", len(wallet.Addresses))})
+
+		// Apply filters
+		if filterTag != "" {
+			tagFound := false
+			for _, t := range wallet.Tags {
+				if strings.EqualFold(t, filterTag) {
+					tagFound = true
+					break
+				}
+			}
+			if !tagFound {
+				continue
+			}
+			title = fmt.Sprintf("Wallets in '%s' tagged '%s'", config.Cfg.ActiveVault, filterTag)
+		}
+		if searchQuery != "" {
+			if !strings.Contains(strings.ToLower(prefix), searchQuery) && !strings.Contains(strings.ToLower(wallet.Notes), searchQuery) {
+				continue
+			}
+			title = fmt.Sprintf("Search results for '%s' in '%s'", searchQuery, config.Cfg.ActiveVault)
+		}
+
+		desc := fmt.Sprintf("Addresses: %d, Tags: [%s]", len(wallet.Addresses), strings.Join(wallet.Tags, ", "))
+		items = append(items, walletItem{prefix: prefix, desc: desc})
 	}
 	m.walletList.SetItems(items)
-	m.walletList.Title = fmt.Sprintf("Wallets in '%s'", config.Cfg.ActiveVault)
+	m.walletList.Title = title
 }
 
 func (m *model) setState(s viewState) {
+	m.previousState = m.state
 	m.state = s
 	m.formError = nil
 	m.syncKeyMap()
@@ -234,6 +338,7 @@ func (m *model) setState(s viewState) {
 func (m *model) syncKeyMap() {
 	isWalletLayer := m.state >= walletListView
 	m.keys.SwitchVault.SetEnabled(isWalletLayer)
+
 	isWalletListView := m.state == walletListView
 	m.keys.AddWallet.SetEnabled(isWalletListView)
 	m.keys.DeleteWallet.SetEnabled(isWalletListView)
@@ -242,15 +347,21 @@ func (m *model) syncKeyMap() {
 	m.keys.Import.SetEnabled(isWalletListView)
 	m.keys.Export.SetEnabled(isWalletListView)
 	m.keys.Clone.SetEnabled(isWalletListView)
+	m.keys.Search.SetEnabled(isWalletListView)
+	m.keys.FilterByTag.SetEnabled(isWalletListView)
+
 	isDetailsView := m.state == walletDetailsView
-	m.keys.Derive.SetEnabled(isDetailsView && m.activeVault.Type == "EVM")
+	m.keys.Derive.SetEnabled(isDetailsView)
 	m.keys.EditLabel.SetEnabled(isDetailsView)
 	m.keys.Copy.SetEnabled(isDetailsView)
-	isConfirmView := m.state == walletConfirmDeleteView || m.state == vaultConfirmDeleteView || m.state == walletConfirmQuitView
+
+	isConfirmView := m.state == walletConfirmDeleteView || m.state == vaultConfirmDeleteView
 	m.keys.Yes.SetEnabled(isConfirmView)
 	m.keys.No.SetEnabled(isConfirmView)
+
 	isCloneSelectView := m.state == walletCloneSelectView
 	m.keys.Select.SetEnabled(isCloneSelectView)
+
 	isVaultListView := m.state == vaultListView
 	m.keys.AddVault.SetEnabled(isVaultListView)
 	m.keys.DeleteVault.SetEnabled(isVaultListView)
@@ -274,6 +385,7 @@ func (m model) Init() tea.Cmd {
 	activeVault, err := config.GetActiveVault()
 	if err != nil || len(config.Cfg.Vaults) == 0 {
 		m.setState(vaultListView)
+		m.refreshVaultList()
 		return nil
 	}
 	m.loadingMsg = fmt.Sprintf("Loading vault '%s'...", config.Cfg.ActiveVault)
@@ -281,43 +393,50 @@ func (m model) Init() tea.Cmd {
 	m.activeVault = activeVault
 	return tea.Batch(m.spinner.Tick, loadVaultCmd(activeVault))
 }
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if msg, ok := msg.(tea.WindowSizeMsg); ok {
-		m.width, m.height = msg.Width, msg.Height
-		h, v := m.styles.App.GetFrameSize()
-		listHeight := m.height - v - 5
-		if m.vaultList.Items() == nil {
-			m.initLists(m.width-h, listHeight)
-		}
-		m.vaultList.SetSize(m.width-h, listHeight)
-		m.walletList.SetSize(m.width-h, listHeight)
-		m.viewport.Width = m.width - h
-		m.viewport.Height = listHeight
-		m.help.Width = m.width - h
-		return m, nil
-	}
+	var cmds []tea.Cmd
+
+	// Handle messages that can arrive in any state
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		// The first WindowSizeMsg initializes the lists
+		if m.vaultList.Items() == nil {
+			m.initLists(m.width, m.height)
+		}
+		return m, nil
+
 	case vaultLoadedMsg:
+		m.setState(walletListView)
 		if msg.err != nil {
-			m.setState(vaultListView)
-			return m, m.vaultList.NewStatusMessage(m.styles.Error.Render(fmt.Sprintf("Error: %v", msg.err)))
+			m.statusMsg = m.styles.Error.Render(fmt.Sprintf("Error: %v", msg.err))
+			return m, nil
 		}
 		v := msg.v
 		m.loadedVault = &v
-		m.refreshWalletList()
-		m.setState(walletListView)
+		m.refreshWalletList("", "")
 		return m, nil
+
 	case deriveCompletedMsg:
 		m.setState(walletDetailsView)
 		if msg.err != nil {
-			return m, m.walletList.NewStatusMessage(m.styles.Error.Render(fmt.Sprintf("Error: %v", msg.err)))
+			m.statusMsg = m.styles.Error.Render(fmt.Sprintf("Error: %v", msg.err))
+			return m, nil
 		}
 		(*m.loadedVault)[m.currentPrefix] = msg.w
 		if err := m.saveActiveVault(); err != nil {
-			return m, m.walletList.NewStatusMessage(m.styles.Error.Render(fmt.Sprintf("Save error: %v", err)))
+			m.statusMsg = m.styles.Error.Render(fmt.Sprintf("Save error: %v", err))
+			return m, nil
 		}
-		m.viewport.SetContent(formatWalletDetails(msg.w.Sanitize(), m.styles, m.activeVault.Type))
-		return m, m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("New address generated: %s", msg.newAdr.Address)))
+		m.updateAddressTable()
+		m.statusMsg = m.styles.Status.Render(fmt.Sprintf("New address generated: %s", msg.newAdr.Address))
+		return m, nil
+
+	case clipboardClearedMsg:
+		m.statusMsg = m.styles.Status.Render("Clipboard cleared.")
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		if m.state == loadingVaultView {
@@ -325,19 +444,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	}
+
+	// State-specific updates
 	switch m.state {
 	case vaultListView:
 		return m.updateVaultListView(msg)
-	case vaultAddFormView:
-		return m.updateVaultAddFormView(msg)
-	case vaultConfirmDeleteView:
-		return m.updateVaultConfirmDeleteView(msg)
 	case walletListView:
 		return m.updateWalletListView(msg)
 	case walletDetailsView:
 		return m.updateWalletDetailsView(msg)
-	case walletConfirmQuitView:
-		return m.updateWalletConfirmQuitView(msg)
+	case searchView:
+		return m.updateSearchView(msg)
+	// Forms and confirmations
+	case vaultAddFormView:
+		return m.updateVaultAddFormView(msg)
+	case vaultConfirmDeleteView:
+		return m.updateVaultConfirmDeleteView(msg)
 	case walletConfirmDeleteView:
 		return m.updateWalletConfirmDeleteView(msg)
 	case walletAddFormView:
@@ -359,55 +481,84 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case walletExportView:
 		return m.updateWalletExportView(msg)
 	}
-	return m, nil
+
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() string {
-	if m.vaultList.Items() == nil {
+	if m.width == 0 {
 		return "Initializing..."
 	}
-	var finalView string
+
+	var mainContent string
 	switch m.state {
 	case loadingVaultView:
-		finalView = fmt.Sprintf("\n   %s %s\n", m.spinner.View(), m.loadingMsg)
+		mainContent = fmt.Sprintf("\n   %s %s\n", m.spinner.View(), m.loadingMsg)
 	case vaultListView:
-		finalView = m.vaultList.View()
-	case vaultAddFormView:
-		finalView = m.viewVaultAddForm()
-	case vaultConfirmDeleteView:
-		finalView = m.styles.Bordered.Render(fmt.Sprintf("Are you sure you want to remove vault '%s' from the configuration?\nThis will NOT delete the vault file itself.\n\n(y/n)", m.prefixToDelete))
+		mainContent = m.vaultList.View()
 	case walletListView:
-		finalView = m.walletList.View()
+		mainContent = m.walletList.View()
 	case walletDetailsView:
-		finalView = m.viewport.View()
-	case walletConfirmQuitView:
-		finalView = m.styles.Bordered.Render("Are you sure you want to quit?\n\n(y/n)")
+		mainContent = m.walletDetailsView()
+	case searchView:
+		mainContent = m.viewSearchForm()
+	// Forms and confirmations
+	case vaultAddFormView:
+		mainContent = m.viewVaultAddForm()
+	case vaultConfirmDeleteView:
+		mainContent = m.styles.Bordered.Render(fmt.Sprintf("Are you sure you want to remove vault '%s' from the configuration?\nThis will NOT delete the vault file itself.\n\n(y/n)", m.prefixToDelete))
 	case walletConfirmDeleteView:
-		finalView = m.styles.Bordered.Render(fmt.Sprintf("Are you sure you want to delete wallet '%s'?\n\n(y/n)", m.prefixToDelete))
+		mainContent = m.styles.Bordered.Render(fmt.Sprintf("Are you sure you want to delete wallet '%s'?\n\n(y/n)", m.prefixToDelete))
 	case walletAddFormView:
-		finalView = m.viewWalletAddForm()
+		mainContent = m.viewWalletAddForm()
 	case walletEditLabelView:
-		finalView = m.viewWalletEditLabelForm()
+		mainContent = m.viewWalletEditLabelForm()
 	case walletCopyView:
-		finalView = m.viewWalletCopyForm()
+		mainContent = m.viewWalletCopyForm()
 	case walletRenameView:
-		finalView = m.viewWalletRenameForm()
+		mainContent = m.viewWalletRenameForm()
 	case walletEditMetadataView:
-		finalView = m.viewWalletEditMetadataForm()
+		mainContent = m.viewWalletEditMetadataForm()
 	case walletCloneSelectView:
-		finalView = m.walletList.View()
+		mainContent = m.walletList.View()
 	case walletCloneFilenameView:
-		finalView = m.viewWalletCloneFilenameForm()
+		mainContent = m.viewWalletCloneFilenameForm()
 	case walletImportView:
-		finalView = m.viewWalletImportForm()
+		mainContent = m.viewWalletImportForm()
 	case walletExportView:
-		finalView = m.viewWalletExportForm()
+		mainContent = m.viewWalletExportForm()
 	default:
-		finalView = m.vaultList.View()
+		mainContent = "Unknown state."
 	}
-	helpView := m.help.View(m.keys)
-	return m.styles.App.Render(finalView + "\n\n" + m.styles.Help.Render(helpView))
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.headerView(),
+		mainContent,
+		m.footerView(),
+	)
 }
+
+// --- View Helpers ---
+
+func (m model) headerView() string {
+	var title string
+	if m.state == vaultListView {
+		title = m.vaultList.Title
+	} else {
+		title = m.walletList.Title
+	}
+	return m.styles.Title.Render(title)
+}
+
+func (m model) footerView() string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		m.styles.Status.Render(m.statusMsg),
+		m.styles.Help.Render(m.help.View(m.keys)),
+	)
+}
+
+// --- Update Functions ---
+
 func (m model) updateVaultListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -424,7 +575,8 @@ func (m model) updateVaultListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			config.Cfg.ActiveVault = selected.name
 			if err := config.SaveConfig(); err != nil {
-				return m, m.vaultList.NewStatusMessage(m.styles.Error.Render("Failed to save config"))
+				m.statusMsg = m.styles.Error.Render("Failed to save config")
+				return m, nil
 			}
 			details := config.Cfg.Vaults[selected.name]
 			m.activeVault = details
@@ -455,19 +607,16 @@ func (m model) updateWalletListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, m.keys.Quit):
-			m.setState(walletConfirmQuitView)
-			return m, nil
+			return m, tea.Quit
 		case key.Matches(msg, m.keys.SwitchVault):
 			m.loadedVault = nil
 			m.setState(vaultListView)
 			m.refreshVaultList()
 			return m, nil
 		case key.Matches(msg, m.keys.Enter):
-			selected, ok := m.walletList.SelectedItem().(walletItem)
-			if ok {
+			if selected, ok := m.walletList.SelectedItem().(walletItem); ok {
 				m.currentPrefix = selected.prefix
-				wallet := (*m.loadedVault)[m.currentPrefix]
-				m.viewport.SetContent(formatWalletDetails(wallet.Sanitize(), m.styles, m.activeVault.Type))
+				m.updateAddressTable()
 				m.setState(walletDetailsView)
 			}
 		case key.Matches(msg, m.keys.DeleteWallet):
@@ -488,7 +637,7 @@ func (m model) updateWalletListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(msg, m.keys.EditMeta):
 			if selected, ok := m.walletList.SelectedItem().(walletItem); ok {
-				m.prefixToEditMetadata = selected.prefix
+				m.prefixToEdit = selected.prefix
 				m.setState(walletEditMetadataView)
 				m.setupWalletEditMetadataForm()
 				return m, m.inputs[0].Focus()
@@ -496,7 +645,6 @@ func (m model) updateWalletListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Clone):
 			m.setState(walletCloneSelectView)
 			m.setupWalletCloneSelect()
-			return m, nil
 		case key.Matches(msg, m.keys.Import):
 			m.setState(walletImportView)
 			m.setupWalletImportForm()
@@ -504,6 +652,16 @@ func (m model) updateWalletListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Export):
 			m.setState(walletExportView)
 			m.setupWalletExportForm()
+			return m, m.inputs[0].Focus()
+		case key.Matches(msg, m.keys.Search):
+			m.searchState = searchByNotes
+			m.setState(searchView)
+			m.setupSearchForm("Search by notes or prefix")
+			return m, m.inputs[0].Focus()
+		case key.Matches(msg, m.keys.FilterByTag):
+			m.searchState = searchByTag
+			m.setState(searchView)
+			m.setupSearchForm("Filter by tag")
 			return m, m.inputs[0].Focus()
 		}
 	}
@@ -513,51 +671,96 @@ func (m model) updateWalletListView(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateWalletDetailsView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Back):
 			m.setState(walletListView)
+			m.refreshWalletList("", "") // Reset any filters
 		case key.Matches(msg, m.keys.SwitchVault):
 			m.loadedVault = nil
 			m.setState(vaultListView)
 			m.refreshVaultList()
-			return m, nil
 		case key.Matches(msg, m.keys.Derive):
-			if !m.keys.Derive.Enabled() {
-				return m, nil
-			}
 			m.loadingMsg = fmt.Sprintf("Deriving new address for '%s'...", m.currentPrefix)
 			m.setState(loadingVaultView)
 			wallet := (*m.loadedVault)[m.currentPrefix]
 			deriveCmd := func() tea.Msg {
-				w, adr, err := actions.DeriveNextAddress(wallet)
+				w, adr, err := actions.DeriveNextAddress(wallet, m.activeVault.Type)
 				return deriveCompletedMsg{w: w, newAdr: adr, err: err}
 			}
 			return m, tea.Batch(m.spinner.Tick, deriveCmd)
 		case key.Matches(msg, m.keys.EditLabel):
-			m.setState(walletEditLabelView)
-			m.setupWalletEditLabelForm()
-			return m, m.inputs[0].Focus()
+			if len(m.addressTable.SelectedRow()) > 0 {
+				m.setState(walletEditLabelView)
+				m.setupWalletEditLabelForm()
+				return m, m.inputs[0].Focus()
+			}
 		case key.Matches(msg, m.keys.Copy):
 			m.setState(walletCopyView)
 			m.setupWalletCopyForm()
 			return m, m.inputs[0].Focus()
 		}
 	}
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.addressTable, cmd = m.addressTable.Update(msg)
 	return m, cmd
 }
 
-func (m model) updateWalletConfirmQuitView(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m model) updateSearchView(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			m.setState(walletListView)
+			m.refreshWalletList("", "")
+			return m, nil
+		case "enter":
+			query := m.inputs[0].Value()
+			if m.searchState == searchByTag {
+				m.refreshWalletList(query, "")
+			} else {
+				m.refreshWalletList("", strings.ToLower(query))
+			}
+			m.setState(walletListView)
+			return m, nil
+		}
+	}
+	m.inputs[0], cmd = m.inputs[0].Update(msg)
+	return m, cmd
+}
+
+// --- Confirmation Handlers ---
+
+func (m model) updateVaultConfirmDeleteView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Yes):
-			return m, tea.Quit
+			if _, exists := config.Cfg.Vaults[m.prefixToDelete]; !exists {
+				m.statusMsg = m.styles.Error.Render("Vault not found in config")
+				m.setState(vaultListView)
+				return m, nil
+			}
+
+			delete(config.Cfg.Vaults, m.prefixToDelete)
+			if config.Cfg.ActiveVault == m.prefixToDelete {
+				config.Cfg.ActiveVault = ""
+			}
+
+			if err := config.SaveConfig(); err != nil {
+				m.statusMsg = m.styles.Error.Render(fmt.Sprintf("Delete error (config): %v", err))
+				m.setState(vaultListView)
+				return m, nil
+			}
+
+			m.refreshVaultList()
+			m.setState(vaultListView)
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Vault '%s' removed from configuration.", m.prefixToDelete))
+			return m, nil
 		case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Back):
-			m.setState(walletListView)
+			m.setState(vaultListView)
 		}
 	}
 	return m, nil
@@ -575,12 +778,15 @@ func (m model) updateWalletConfirmDeleteView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(*m.loadedVault, m.prefixToDelete)
 			if err := m.saveActiveVault(); err != nil {
 				audit.Logger.Error("Failed to save vault after TUI deletion", "error", err.Error(), "prefix", m.prefixToDelete)
-				return m, m.walletList.NewStatusMessage(m.styles.Error.Render(fmt.Sprintf("Save error: %v", err)))
+				m.statusMsg = m.styles.Error.Render(fmt.Sprintf("Save error: %v", err))
+				m.setState(walletListView)
+				return m, nil
 			}
-			m.refreshWalletList()
+			m.refreshWalletList("", "")
 			m.setState(walletListView)
 			audit.Logger.Info("Wallet deleted successfully via TUI", "prefix", m.prefixToDelete, "vault", config.Cfg.ActiveVault)
-			return m, m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Wallet '%s' deleted.", m.prefixToDelete)))
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Wallet '%s' deleted.", m.prefixToDelete))
+			return m, nil
 		case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Back):
 			m.setState(walletListView)
 		}
@@ -588,23 +794,7 @@ func (m model) updateWalletConfirmDeleteView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// --- Form Logic: Add Vault ---
-
-func (m *model) setupVaultAddForm() {
-	m.inputs = make([]textinput.Model, 5)
-	prompts := []string{"Vault Name (Prefix)", "Type (e.g., EVM)", "Encryption (passphrase or yubikey)", "Key File Path (e.g., my_vault.age)", "Recipients File (if yubikey)"}
-	placeholders := []string{"My_EVM_Vault", "EVM", "passphrase", "my_vault.age", "recipients.txt"}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = placeholders[i]
-		t.CharLimit = 128
-		t.Width = 60
-		m.inputs[i] = t
-	}
-	m.inputs[0].Focus()
-	m.focusIndex = 0
-}
+// --- Form Handlers ---
 
 func (m model) updateVaultAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -646,7 +836,8 @@ func (m model) updateVaultAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				m.refreshVaultList()
 				m.setState(vaultListView)
-				return m, m.vaultList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Vault '%s' added to configuration.", name)))
+				m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Vault '%s' added to configuration.", name))
+				return m, nil
 			}
 			if s == "up" || s == "shift+tab" {
 				m.focusIndex--
@@ -674,67 +865,6 @@ func (m model) updateVaultAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
-}
-
-func (m model) viewVaultAddForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Add New Vault to Configuration") + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Confirmation Logic: Delete Vault ---
-
-func (m model) updateVaultConfirmDeleteView(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, m.keys.Yes):
-			if _, exists := config.Cfg.Vaults[m.prefixToDelete]; !exists {
-				return m, m.vaultList.NewStatusMessage(m.styles.Error.Render("Vault not found in config"))
-			}
-
-			delete(config.Cfg.Vaults, m.prefixToDelete)
-			if config.Cfg.ActiveVault == m.prefixToDelete {
-				config.Cfg.ActiveVault = ""
-			}
-
-			if err := config.SaveConfig(); err != nil {
-				return m, m.vaultList.NewStatusMessage(m.styles.Error.Render(fmt.Sprintf("Delete error (config): %v", err)))
-			}
-
-			m.refreshVaultList()
-			m.setState(vaultListView)
-			return m, m.vaultList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Vault '%s' removed from configuration.", m.prefixToDelete)))
-		case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Back):
-			m.setState(vaultListView)
-		}
-	}
-	return m, nil
-}
-
-// --- Form Logic: Add Wallet ---
-func (m *model) setupWalletAddForm() {
-	m.inputs = make([]textinput.Model, 3)
-	prompts := []string{"Prefix", "Type (1=Mnemonic, 2=Private Key)", "Secret"}
-	placeholders := []string{"My_New_Wallet", "1", "..."}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = placeholders[i]
-		t.CharLimit = 128
-		t.Width = 50
-		m.inputs[i] = t
-	}
-	m.inputs[2].EchoMode = textinput.EchoPassword
-	m.inputs[0].Focus()
-	m.focusIndex = 0
 }
 
 func (m model) updateWalletAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -763,9 +893,9 @@ func (m model) updateWalletAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var err error
 				switch choice {
 				case "1":
-					newWallet, _, err = actions.CreateWalletFromMnemonic(secret)
+					newWallet, _, err = actions.CreateWalletFromMnemonic(secret, m.activeVault.Type)
 				case "2":
-					newWallet, _, err = actions.CreateWalletFromPrivateKey(secret)
+					newWallet, _, err = actions.CreateWalletFromPrivateKey(secret, m.activeVault.Type)
 				default:
 					err = fmt.Errorf("invalid type: must be 1 or 2")
 				}
@@ -778,9 +908,10 @@ func (m model) updateWalletAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formError = err
 					return m, nil
 				}
-				m.refreshWalletList()
+				m.refreshWalletList("", "")
 				m.setState(walletListView)
-				return m, m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Wallet '%s' added.", prefix)))
+				m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Wallet '%s' added.", prefix))
+				return m, nil
 			}
 			if s == "up" || s == "shift+tab" {
 				m.focusIndex--
@@ -808,36 +939,6 @@ func (m model) updateWalletAddFormView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
-}
-
-func (m model) viewWalletAddForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Add New Wallet") + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Form Logic: Edit Label ---
-func (m *model) setupWalletEditLabelForm() {
-	m.inputs = make([]textinput.Model, 2)
-	prompts := []string{"Address Index", "New Label"}
-	placeholders := []string{"0", "My new label"}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = placeholders[i]
-		t.CharLimit = 128
-		t.Width = 50
-		m.inputs[i] = t
-	}
-	m.inputs[0].Focus()
-	m.focusIndex = 0
 }
 
 func (m model) updateWalletEditLabelView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -848,94 +949,35 @@ func (m model) updateWalletEditLabelView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "esc":
 			m.setState(walletDetailsView)
 			return m, nil
-		case "tab", "shift+tab", "up", "down", "enter":
-			s := msg.String()
-			if s == "enter" && m.focusIndex == len(m.inputs)-1 {
-				indexStr := m.inputs[0].Value()
-				newLabel := m.inputs[1].Value()
-				index, err := strconv.Atoi(indexStr)
-				if err != nil {
-					m.formError = fmt.Errorf("index must be a number")
-					return m, nil
-				}
-				wallet := (*m.loadedVault)[m.currentPrefix]
-				var addressToUpdate *vault.Address
-				for i := range wallet.Addresses {
-					if wallet.Addresses[i].Index == index {
-						addressToUpdate = &wallet.Addresses[i]
-						break
-					}
-				}
-				if addressToUpdate == nil {
-					m.formError = fmt.Errorf("address with index %d not found", index)
-					return m, nil
-				}
-				addressToUpdate.Label = newLabel
-				(*m.loadedVault)[m.currentPrefix] = wallet
-				if err := m.saveActiveVault(); err != nil {
-					m.formError = err
-					return m, nil
-				}
-				m.viewport.SetContent(formatWalletDetails(wallet.Sanitize(), m.styles, m.activeVault.Type))
-				m.setState(walletDetailsView)
-				return m, m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Label for address %d updated.", index)))
+		case "enter":
+			selectedRow := m.addressTable.SelectedRow()
+			indexStr := selectedRow[0]
+			newLabel := m.inputs[0].Value()
+			index, _ := strconv.Atoi(indexStr)
+
+			wallet := (*m.loadedVault)[m.currentPrefix]
+			addressToUpdate, found := findAddressByIndex(wallet, index)
+			if !found {
+				m.formError = fmt.Errorf("address with index %d not found", index)
+				return m, nil
 			}
-			if s == "up" || s == "shift+tab" {
-				m.focusIndex--
-			} else {
-				m.focusIndex++
+			addressToUpdate.Label = newLabel
+			(*m.loadedVault)[m.currentPrefix] = wallet
+			if err := m.saveActiveVault(); err != nil {
+				m.formError = err
+				return m, nil
 			}
-			if m.focusIndex > len(m.inputs)-1 {
-				m.focusIndex = 0
-			} else if m.focusIndex < 0 {
-				m.focusIndex = len(m.inputs) - 1
-			}
-			for i := 0; i < len(m.inputs); i++ {
-				if i == m.focusIndex {
-					cmds = append(cmds, m.inputs[i].Focus())
-				} else {
-					m.inputs[i].Blur()
-				}
-			}
-			return m, tea.Batch(cmds...)
+			m.updateAddressTable()
+			m.setState(walletDetailsView)
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Label for address %d updated.", index))
+			return m, nil
 		}
 	}
-	for i := range m.inputs {
-		var cmd tea.Cmd
-		m.inputs[i], cmd = m.inputs[i].Update(msg)
-		cmds = append(cmds, cmd)
-	}
+
+	var cmd tea.Cmd
+	m.inputs[0], cmd = m.inputs[0].Update(msg)
+	cmds = append(cmds, cmd)
 	return m, tea.Batch(cmds...)
-}
-
-func (m model) viewWalletEditLabelForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Edit Address Label") + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Form Logic: Copy ---
-func (m *model) setupWalletCopyForm() {
-	m.inputs = make([]textinput.Model, 2)
-	prompts := []string{"Address Index", "Field (address, privatekey, mnemonic)"}
-	placeholders := []string{"0", "privatekey"}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = placeholders[i]
-		t.CharLimit = 128
-		t.Width = 50
-		m.inputs[i] = t
-	}
-	m.inputs[0].Focus()
-	m.focusIndex = 0
 }
 
 func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -949,26 +991,26 @@ func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "shift+tab", "up", "down", "enter":
 			s := msg.String()
 			if s == "enter" && m.focusIndex == len(m.inputs)-1 {
-				indexStr := m.inputs[0].Value()
-				field := strings.ToLower(m.inputs[1].Value())
-				index, err := strconv.Atoi(indexStr)
-				if err != nil && field != "mnemonic" {
-					m.formError = fmt.Errorf("index must be a number")
-					return m, nil
-				}
+				field := strings.ToLower(m.inputs[0].Value())
 				wallet := (*m.loadedVault)[m.currentPrefix]
 				var result string
 				var isSecret bool
 				switch field {
-				case "address":
-					addressData, found := findAddressByIndex(wallet, index)
-					if !found {
-						m.formError = fmt.Errorf("address with index %d not found", index)
+				case constants.FieldAddress:
+					selectedRow := m.addressTable.SelectedRow()
+					if len(selectedRow) == 0 {
+						m.formError = fmt.Errorf("no address selected")
 						return m, nil
 					}
-					result = addressData.Address
+					result = selectedRow[2] // Address is the 3rd column
 					isSecret = false
-				case "privatekey":
+				case constants.FieldPrivateKey:
+					selectedRow := m.addressTable.SelectedRow()
+					if len(selectedRow) == 0 {
+						m.formError = fmt.Errorf("no address selected")
+						return m, nil
+					}
+					index, _ := strconv.Atoi(selectedRow[0])
 					addressData, found := findAddressByIndex(wallet, index)
 					if !found {
 						m.formError = fmt.Errorf("address with index %d not found", index)
@@ -976,7 +1018,7 @@ func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					result = addressData.PrivateKey
 					isSecret = true
-				case "mnemonic":
+				case constants.FieldMnemonic:
 					if wallet.Mnemonic == "" {
 						m.formError = fmt.Errorf("wallet '%s' does not have a mnemonic", m.currentPrefix)
 						return m, nil
@@ -987,10 +1029,12 @@ func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formError = fmt.Errorf("invalid field: use 'address', 'privatekey', or 'mnemonic'")
 					return m, nil
 				}
+
 				if err := clipboard.WriteAll(result); err != nil {
 					m.formError = fmt.Errorf("failed to copy to clipboard: %w", err)
 					return m, nil
 				}
+
 				var statusMessage string
 				if isSecret {
 					audit.Logger.Warn("Secret data accessed via TUI",
@@ -999,18 +1043,19 @@ func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
 						slog.String("field", field),
 					)
 					statusMessage = fmt.Sprintf("✅ Secret '%s' copied. Clipboard will be cleared in 30s.", field)
-					go func() {
-						time.Sleep(30 * time.Second)
+					go func(secret string) {
+						time.Sleep(clipboardClearTimeout)
 						currentClipboard, _ := clipboard.ReadAll()
-						if currentClipboard == result {
+						if currentClipboard == secret {
 							clipboard.WriteAll("")
 						}
-					}()
+					}(result)
 				} else {
-					statusMessage = fmt.Sprintf("✅ Field '%s' for address %d copied.", field, index)
+					statusMessage = fmt.Sprintf("✅ Field '%s' copied.", field)
 				}
 				m.setState(walletDetailsView)
-				return m, m.walletList.NewStatusMessage(m.styles.Status.Render(statusMessage))
+				m.statusMsg = m.styles.Status.Render(statusMessage)
+				return m, nil
 			}
 			if s == "up" || s == "shift+tab" {
 				m.focusIndex--
@@ -1038,31 +1083,6 @@ func (m model) updateWalletCopyView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
-}
-
-func (m model) viewWalletCopyForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Copy Data to Clipboard") + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Form Logic: Rename ---
-func (m *model) setupWalletRenameForm() {
-	m.inputs = make([]textinput.Model, 1)
-	t := textinput.New()
-	t.Prompt = "New prefix: "
-	t.Placeholder = "My_Renamed_Wallet"
-	t.Focus()
-	t.CharLimit = 32
-	t.Width = 50
-	m.inputs[0] = t
 }
 
 func (m model) updateWalletRenameView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1090,44 +1110,14 @@ func (m model) updateWalletRenameView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formError = err
 				return m, nil
 			}
-			m.refreshWalletList()
+			m.refreshWalletList("", "")
 			m.setState(walletListView)
-			statusCmd := m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Wallet '%s' renamed to '%s'", m.prefixToRename, newPrefix)))
-			return m, statusCmd
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Wallet '%s' renamed to '%s'", m.prefixToRename, newPrefix))
+			return m, nil
 		}
 	}
 	m.inputs[0], cmd = m.inputs[0].Update(msg)
 	return m, cmd
-}
-
-func (m model) viewWalletRenameForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(fmt.Sprintf("Renaming '%s'", m.prefixToRename)) + "\n\n")
-	b.WriteString(m.inputs[0].View())
-	if m.formError != nil {
-		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n\n(enter to confirm, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Form Logic: Edit Metadata ---
-func (m *model) setupWalletEditMetadataForm() {
-	m.inputs = make([]textinput.Model, 2)
-	wallet := (*m.loadedVault)[m.prefixToEditMetadata]
-	prompts := []string{"Notes", "Tags (comma separated)"}
-	initialValues := []string{wallet.Notes, strings.Join(wallet.Tags, ", ")}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = prompts[i]
-		t.SetValue(initialValues[i])
-		t.CharLimit = 256
-		t.Width = 80
-		m.inputs[i] = t
-	}
-	m.inputs[0].Focus()
-	m.focusIndex = 0
 }
 
 func (m model) updateWalletEditMetadataView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1141,7 +1131,7 @@ func (m model) updateWalletEditMetadataView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "tab", "shift+tab", "up", "down", "enter":
 			s := msg.String()
 			if s == "enter" && m.focusIndex == len(m.inputs)-1 {
-				wallet := (*m.loadedVault)[m.prefixToEditMetadata]
+				wallet := (*m.loadedVault)[m.prefixToEdit]
 				wallet.Notes = m.inputs[0].Value()
 				tagsStr := m.inputs[1].Value()
 				if tagsStr == "" {
@@ -1153,15 +1143,15 @@ func (m model) updateWalletEditMetadataView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					wallet.Tags = tags
 				}
-				(*m.loadedVault)[m.prefixToEditMetadata] = wallet
+				(*m.loadedVault)[m.prefixToEdit] = wallet
 				if err := m.saveActiveVault(); err != nil {
 					m.formError = err
 					return m, nil
 				}
-				m.refreshWalletList()
+				m.refreshWalletList("", "")
 				m.setState(walletListView)
-				statusCmd := m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Metadata for '%s' updated.", m.prefixToEditMetadata)))
-				return m, statusCmd
+				m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Metadata for '%s' updated.", m.prefixToEdit))
+				return m, nil
 			}
 			if s == "up" || s == "shift+tab" {
 				m.focusIndex--
@@ -1191,50 +1181,6 @@ func (m model) updateWalletEditMetadataView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m model) viewWalletEditMetadataForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render(fmt.Sprintf("Editing metadata for '%s'", m.prefixToEditMetadata)) + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Clone Logic ---
-type cloneDelegate struct{ model *model }
-
-func (d *cloneDelegate) Height() int                               { return 1 }
-func (d *cloneDelegate) Spacing() int                              { return 0 }
-func (d *cloneDelegate) Update(msg tea.Msg, l *list.Model) tea.Cmd { return nil }
-func (d *cloneDelegate) Render(w io.Writer, l list.Model, index int, listItem list.Item) {
-	i, ok := listItem.(walletItem)
-	if !ok {
-		return
-	}
-	str := i.Title()
-	if _, ok := d.model.selectedToClone[str]; ok {
-		str = "[x] " + str
-	} else {
-		str = "[ ] " + str
-	}
-	fn := d.model.styles.ListItem.Render
-	if index == l.Index() {
-		fn = func(s ...string) string { return d.model.styles.ListItemSelected.Render(s...) }
-	}
-	fmt.Fprint(w, fn(str))
-}
-
-func (m *model) setupWalletCloneSelect() {
-	m.selectedToClone = make(map[string]struct{})
-	delegate := &cloneDelegate{model: m}
-	m.walletList.SetDelegate(delegate)
-	m.walletList.Title = "Select wallets to clone (space to select, enter to confirm)"
-}
-
 func (m model) updateWalletCloneSelectView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -1243,7 +1189,7 @@ func (m model) updateWalletCloneSelectView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resetToDefaultWalletList()
 			m.setState(walletListView)
 		case key.Matches(msg, m.keys.Enter):
-			if len(m.selectedToClone) > 0 {
+			if len(m.cloneSelection) > 0 {
 				m.setState(walletCloneFilenameView)
 				m.setupWalletCloneFilenameForm()
 				return m, m.inputs[0].Focus()
@@ -1251,10 +1197,10 @@ func (m model) updateWalletCloneSelectView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Select):
 			if i, ok := m.walletList.SelectedItem().(walletItem); ok {
 				title := i.Title()
-				if _, ok := m.selectedToClone[title]; ok {
-					delete(m.selectedToClone, title)
+				if _, ok := m.cloneSelection[title]; ok {
+					delete(m.cloneSelection, title)
 				} else {
-					m.selectedToClone[title] = struct{}{}
+					m.cloneSelection[title] = struct{}{}
 				}
 			}
 		}
@@ -1262,23 +1208,6 @@ func (m model) updateWalletCloneSelectView(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.walletList, cmd = m.walletList.Update(msg)
 	return m, cmd
-}
-
-func (m *model) resetToDefaultWalletList() {
-	defaultDelegate := list.NewDefaultDelegate()
-	m.walletList.SetDelegate(defaultDelegate)
-	m.walletList.Title = fmt.Sprintf("Wallets in '%s'", config.Cfg.ActiveVault)
-}
-
-func (m *model) setupWalletCloneFilenameForm() {
-	m.inputs = make([]textinput.Model, 1)
-	t := textinput.New()
-	t.Prompt = "Filename for the new vault: "
-	t.Placeholder = "bot_vault.age"
-	t.Focus()
-	t.CharLimit = 128
-	t.Width = 50
-	m.inputs[0] = t
 }
 
 func (m model) updateWalletCloneFilenameView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1296,8 +1225,8 @@ func (m model) updateWalletCloneFilenameView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.formError = fmt.Errorf("filename cannot be empty")
 				return m, nil
 			}
-			prefixes := make([]string, 0, len(m.selectedToClone))
-			for p := range m.selectedToClone {
+			prefixes := make([]string, 0, len(m.cloneSelection))
+			for p := range m.cloneSelection {
 				prefixes = append(prefixes, p)
 			}
 			clonedVault, err := actions.CloneVault(*m.loadedVault, prefixes)
@@ -1313,40 +1242,12 @@ func (m model) updateWalletCloneFilenameView(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.resetToDefaultWalletList()
 			m.setState(walletListView)
-			statusCmd := m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Cloned vault '%s' created.", outputFile)))
-			return m, statusCmd
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Cloned vault '%s' created.", outputFile))
+			return m, nil
 		}
 	}
 	m.inputs[0], cmd = m.inputs[0].Update(msg)
 	return m, cmd
-}
-
-func (m model) viewWalletCloneFilenameForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Create Cloned Vault") + "\n\n")
-	b.WriteString(m.inputs[0].View())
-	if m.formError != nil {
-		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n\n(enter to confirm, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-// --- Import/Export Logic ---
-func (m *model) setupWalletImportForm() {
-	m.inputs = make([]textinput.Model, 3)
-	prompts := []string{"Path to file", "Format (json or key-value)", "On Conflict (skip, overwrite, fail)"}
-	placeholders := []string{"import.json", "json", "skip"}
-	for i := range m.inputs {
-		t := textinput.New()
-		t.Prompt = prompts[i] + ": "
-		t.Placeholder = placeholders[i]
-		t.CharLimit = 128
-		t.Width = 50
-		m.inputs[i] = t
-	}
-	m.inputs[0].Focus()
-	m.focusIndex = 0
 }
 
 func (m model) updateWalletImportView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1370,7 +1271,7 @@ func (m model) updateWalletImportView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formError = fmt.Errorf("could not read file: %w", err)
 					return m, nil
 				}
-				updatedVault, report, err := actions.ImportWallets(*m.loadedVault, content, format, conflictPolicy)
+				updatedVault, report, err := actions.ImportWallets(*m.loadedVault, content, format, conflictPolicy, m.activeVault.Type)
 				if err != nil {
 					m.formError = err
 					return m, nil
@@ -1380,9 +1281,10 @@ func (m model) updateWalletImportView(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				*m.loadedVault = updatedVault
-				m.refreshWalletList()
+				m.refreshWalletList("", "")
 				m.setState(walletListView)
-				return m, m.walletList.NewStatusMessage(m.styles.Status.Render(report))
+				m.statusMsg = m.styles.Status.Render(report)
+				return m, nil
 			}
 			if s == "up" || s == "shift+tab" {
 				m.focusIndex--
@@ -1410,30 +1312,6 @@ func (m model) updateWalletImportView(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
-}
-
-func (m model) viewWalletImportForm() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Title.Render("Import Wallets From File") + "\n\n")
-	for i := range m.inputs {
-		b.WriteString(m.inputs[i].View() + "\n")
-	}
-	if m.formError != nil {
-		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
-	}
-	b.WriteString("\n(enter to submit, esc to cancel)")
-	return m.styles.Bordered.Render(b.String())
-}
-
-func (m *model) setupWalletExportForm() {
-	m.inputs = make([]textinput.Model, 1)
-	t := textinput.New()
-	t.Prompt = "Path for export file: "
-	t.Placeholder = "export.json"
-	t.Focus()
-	t.CharLimit = 128
-	t.Width = 50
-	m.inputs[0] = t
 }
 
 func (m model) updateWalletExportView(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1464,12 +1342,285 @@ func (m model) updateWalletExportView(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.setState(walletListView)
-			statusCmd := m.walletList.NewStatusMessage(m.styles.Status.Render(fmt.Sprintf("✅ Vault successfully exported to '%s'", filePath)))
-			return m, statusCmd
+			m.statusMsg = m.styles.Status.Render(fmt.Sprintf("Vault successfully exported to '%s'", filePath))
+			return m, nil
 		}
 	}
 	m.inputs[0], cmd = m.inputs[0].Update(msg)
 	return m, cmd
+}
+
+// --- Final Section: Helpers, Forms Views, and Entry Point ---
+
+func (m *model) updateAddressTable() {
+	wallet := (*m.loadedVault)[m.currentPrefix]
+	rows := make([]table.Row, len(wallet.Addresses))
+	for i, addr := range wallet.Addresses {
+		rows[i] = table.Row{
+			fmt.Sprintf("%d", addr.Index),
+			addr.Label,
+			addr.Address,
+		}
+	}
+	m.addressTable.SetRows(rows)
+}
+
+func (m model) walletDetailsView() string {
+	var b strings.Builder
+	wallet := (*m.loadedVault)[m.currentPrefix]
+	b.WriteString(fmt.Sprintf("Notes: %s\n", wallet.Notes))
+	b.WriteString(fmt.Sprintf("Tags: [%s]\n", strings.Join(wallet.Tags, ", ")))
+	b.WriteString("\n")
+	b.WriteString(m.addressTable.View())
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupSearchForm(placeholder string) {
+	m.inputs = make([]textinput.Model, 1)
+	t := textinput.New()
+	t.Placeholder = placeholder
+	t.Focus()
+	t.CharLimit = 64
+	t.Width = 50
+	m.inputs[0] = t
+}
+
+func (m model) viewSearchForm() string {
+	return fmt.Sprintf("\n%s\n", m.inputs[0].View())
+}
+
+func (m *model) setupVaultAddForm() {
+	m.inputs = make([]textinput.Model, 5)
+	prompts := []string{"Vault Name (Prefix)", "Type (e.g., EVM, COSMOS)", "Encryption (passphrase or yubikey)", "Key File Path (e.g., my_vault.age)", "Recipients File (if yubikey)"}
+	placeholders := []string{"My_EVM_Vault", "EVM", "passphrase", "my_vault.age", "recipients.txt"}
+	for i := range m.inputs {
+		t := textinput.New()
+		t.Prompt = prompts[i] + ": "
+		t.Placeholder = placeholders[i]
+		t.CharLimit = 128
+		t.Width = 60
+		m.inputs[i] = t
+	}
+	m.inputs[0].Focus()
+	m.focusIndex = 0
+}
+
+func (m model) viewVaultAddForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render("Add New Vault to Configuration") + "\n\n")
+	for i := range m.inputs {
+		b.WriteString(m.inputs[i].View() + "\n")
+	}
+	if m.formError != nil {
+		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletAddForm() {
+	m.inputs = make([]textinput.Model, 3)
+	prompts := []string{"Prefix", "Type (1=Mnemonic, 2=Private Key)", "Secret"}
+	placeholders := []string{"My_New_Wallet", "1", "..."}
+	for i := range m.inputs {
+		t := textinput.New()
+		t.Prompt = prompts[i] + ": "
+		t.Placeholder = placeholders[i]
+		t.CharLimit = 128
+		t.Width = 50
+		m.inputs[i] = t
+	}
+	m.inputs[2].EchoMode = textinput.EchoPassword
+	m.inputs[0].Focus()
+	m.focusIndex = 0
+}
+
+func (m model) viewWalletAddForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render("Add New Wallet") + "\n\n")
+	for i := range m.inputs {
+		b.WriteString(m.inputs[i].View() + "\n")
+	}
+	if m.formError != nil {
+		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletEditLabelForm() {
+	m.inputs = make([]textinput.Model, 1)
+	selectedRow := m.addressTable.SelectedRow()
+	currentLabel := selectedRow[1]
+	t := textinput.New()
+	t.Prompt = "New Label: "
+	t.Placeholder = currentLabel
+	t.Focus()
+	t.CharLimit = 128
+	t.Width = 50
+	m.inputs[0] = t
+}
+
+func (m model) viewWalletEditLabelForm() string {
+	var b strings.Builder
+	selectedRow := m.addressTable.SelectedRow()
+	b.WriteString(m.styles.Title.Render(fmt.Sprintf("Editing Label for Address %s", selectedRow[0])) + "\n\n")
+	b.WriteString(m.inputs[0].View())
+	if m.formError != nil {
+		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletCopyForm() {
+	m.inputs = make([]textinput.Model, 1)
+	t := textinput.New()
+	t.Prompt = "Field (address, privatekey, mnemonic): "
+	t.Placeholder = "privatekey"
+	t.Focus()
+	t.CharLimit = 32
+	t.Width = 50
+	m.inputs[0] = t
+	m.focusIndex = 0 // Only one input
+}
+
+func (m model) viewWalletCopyForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render("Copy Data to Clipboard") + "\n\n")
+	b.WriteString(m.inputs[0].View())
+	if m.formError != nil {
+		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletRenameForm() {
+	m.inputs = make([]textinput.Model, 1)
+	t := textinput.New()
+	t.Prompt = "New prefix: "
+	t.Placeholder = "My_Renamed_Wallet"
+	t.Focus()
+	t.CharLimit = 32
+	t.Width = 50
+	m.inputs[0] = t
+}
+
+func (m model) viewWalletRenameForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render(fmt.Sprintf("Renaming '%s'", m.prefixToRename)) + "\n\n")
+	b.WriteString(m.inputs[0].View())
+	if m.formError != nil {
+		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n\n(enter to confirm, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletEditMetadataForm() {
+	m.inputs = make([]textinput.Model, 2)
+	wallet := (*m.loadedVault)[m.prefixToEdit]
+	prompts := []string{"Notes", "Tags (comma separated)"}
+	initialValues := []string{wallet.Notes, strings.Join(wallet.Tags, ", ")}
+	for i := range m.inputs {
+		t := textinput.New()
+		t.Prompt = prompts[i] + ": "
+		t.Placeholder = prompts[i]
+		t.SetValue(initialValues[i])
+		t.CharLimit = 256
+		t.Width = 80
+		m.inputs[i] = t
+	}
+	m.inputs[0].Focus()
+	m.focusIndex = 0
+}
+
+func (m model) viewWalletEditMetadataForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render(fmt.Sprintf("Editing metadata for '%s'", m.prefixToEdit)) + "\n\n")
+	for i := range m.inputs {
+		b.WriteString(m.inputs[i].View() + "\n")
+	}
+	if m.formError != nil {
+		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletCloneSelect() {
+	m.cloneSelection = make(map[string]struct{})
+	delegate := &cloneDelegate{model: m}
+	m.walletList.SetDelegate(delegate)
+	m.walletList.Title = "Select wallets to clone (space to select, enter to confirm)"
+}
+
+func (m *model) resetToDefaultWalletList() {
+	m.walletList.SetDelegate(newItemDelegate(m.styles))
+	m.walletList.Title = fmt.Sprintf("Wallets in '%s'", config.Cfg.ActiveVault)
+}
+
+func (m *model) setupWalletCloneFilenameForm() {
+	m.inputs = make([]textinput.Model, 1)
+	t := textinput.New()
+	t.Prompt = "Filename for the new vault: "
+	t.Placeholder = "bot_vault.age"
+	t.Focus()
+	t.CharLimit = 128
+	t.Width = 50
+	m.inputs[0] = t
+}
+
+func (m model) viewWalletCloneFilenameForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render("Create Cloned Vault") + "\n\n")
+	b.WriteString(m.inputs[0].View())
+	if m.formError != nil {
+		b.WriteString("\n\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n\n(enter to confirm, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletImportForm() {
+	m.inputs = make([]textinput.Model, 3)
+	prompts := []string{"Path to file", "Format (json or key-value)", "On Conflict (skip, overwrite, fail)"}
+	placeholders := []string{"import.json", "json", "skip"}
+	for i := range m.inputs {
+		t := textinput.New()
+		t.Prompt = prompts[i] + ": "
+		t.Placeholder = placeholders[i]
+		t.CharLimit = 128
+		t.Width = 50
+		m.inputs[i] = t
+	}
+	m.inputs[0].Focus()
+	m.focusIndex = 0
+}
+
+func (m model) viewWalletImportForm() string {
+	var b strings.Builder
+	b.WriteString(m.styles.Title.Render("Import Wallets From File") + "\n\n")
+	for i := range m.inputs {
+		b.WriteString(m.inputs[i].View() + "\n")
+	}
+	if m.formError != nil {
+		b.WriteString("\n" + m.styles.Error.Render(m.formError.Error()))
+	}
+	b.WriteString("\n(enter to submit, esc to cancel)")
+	return m.styles.Bordered.Render(b.String())
+}
+
+func (m *model) setupWalletExportForm() {
+	m.inputs = make([]textinput.Model, 1)
+	t := textinput.New()
+	t.Prompt = "Path for export file: "
+	t.Placeholder = "export.json"
+	t.Focus()
+	t.CharLimit = 128
+	t.Width = 50
+	m.inputs[0] = t
 }
 
 func (m model) viewWalletExportForm() string {
@@ -1483,27 +1634,6 @@ func (m model) viewWalletExportForm() string {
 	return m.styles.Bordered.Render(b.String())
 }
 
-// --- Helper Functions ---
-func formatWalletDetails(wallet vault.Wallet, s Styles, vaultType string) string {
-	var b strings.Builder
-	b.WriteString(s.Title.Render(fmt.Sprintf("Wallet Details (Type: %s)", vaultType)) + "\n\n")
-	if wallet.Mnemonic != "" {
-		b.WriteString(fmt.Sprintf("Mnemonic: %s\n", wallet.Mnemonic))
-	}
-	if wallet.DerivationPath != "" {
-		b.WriteString(fmt.Sprintf("Derivation Path: %s\n", wallet.DerivationPath))
-	}
-	b.WriteString("\n--- Addresses ---\n")
-	for _, addr := range wallet.Addresses {
-		b.WriteString(fmt.Sprintf("  Index: %d\n", addr.Index))
-		b.WriteString(fmt.Sprintf("  Label: %s\n", addr.Label))
-		b.WriteString(fmt.Sprintf("  Address: %s\n", addr.Address))
-		b.WriteString(fmt.Sprintf("  Private Key: %s\n", addr.PrivateKey))
-		b.WriteString("  ----------\n")
-	}
-	return b.String()
-}
-
 func findAddressByIndex(wallet vault.Wallet, index int) (*vault.Address, bool) {
 	for i := range wallet.Addresses {
 		if wallet.Addresses[i].Index == index {
@@ -1515,7 +1645,19 @@ func findAddressByIndex(wallet vault.Wallet, index int) (*vault.Address, bool) {
 
 // StartTUI is the entry point for the TUI application.
 func StartTUI() {
-	p := tea.NewProgram(NewModel(), tea.WithAltScreen())
+	// Initialize logger for TUI session
+	if err := audit.InitLogger(); err != nil {
+		fmt.Println("Failed to initialize audit logger:", err)
+		os.Exit(1)
+	}
+	// Load config for TUI session
+	if err := config.LoadConfig(); err != nil {
+		fmt.Println("Failed to load configuration:", err)
+		os.Exit(1)
+	}
+	audit.Logger.Info("Starting interactive TUI mode")
+
+	p := tea.NewProgram(newModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error starting TUI:", err)
 		os.Exit(1)

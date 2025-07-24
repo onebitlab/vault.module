@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	hdwallet "github.com/miguelmota/go-ethereum-hdwallet"
 	"github.com/tyler-smith/go-bip39"
+	"vault.module/internal/vault"
 )
 
 const (
@@ -18,48 +19,139 @@ const (
 	EVMDerivationPath = "m/44'/60'/0'/0"
 )
 
+// EVMManager implements the KeyManager interface for EVM-compatible chains.
+type EVMManager struct{}
+
+// CreateWalletFromMnemonic creates a wallet from a mnemonic.
+func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, error) {
+	if !m.ValidateMnemonic(mnemonic) {
+		return vault.Wallet{}, fmt.Errorf("the provided mnemonic phrase is invalid")
+	}
+
+	hdWallet, err := createEVMWalletFromMnemonic(mnemonic)
+	if err != nil {
+		return vault.Wallet{}, fmt.Errorf("failed to create wallet: %w", err)
+	}
+
+	path := fmt.Sprintf("%s/0", EVMDerivationPath)
+	privateKey, err := deriveEVMPrivateKey(hdWallet, path)
+	if err != nil {
+		return vault.Wallet{}, fmt.Errorf("failed to derive private key: %w", err)
+	}
+
+	address, err := privateKeyToEVMAddress(privateKey)
+	if err != nil {
+		return vault.Wallet{}, fmt.Errorf("failed to generate address: %w", err)
+	}
+
+	return vault.Wallet{
+		Mnemonic:       mnemonic,
+		DerivationPath: EVMDerivationPath,
+		Addresses: []vault.Address{
+			{
+				Index:      0,
+				Path:       path,
+				Address:    address,
+				PrivateKey: privateKeyToEVMString(privateKey),
+				Label:      "Primary",
+			},
+		},
+	}, nil
+}
+
+// CreateWalletFromPrivateKey creates a wallet from a private key.
+func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, error) {
+	if !m.ValidatePrivateKey(pkStr) {
+		return vault.Wallet{}, fmt.Errorf("the provided private key is invalid")
+	}
+
+	privateKey, err := privateKeyFromEVMString(pkStr)
+	if err != nil {
+		return vault.Wallet{}, fmt.Errorf("failed to process private key: %w", err)
+	}
+
+	address, err := privateKeyToEVMAddress(privateKey)
+	if err != nil {
+		return vault.Wallet{}, fmt.Errorf("failed to generate address: %w", err)
+	}
+
+	return vault.Wallet{
+		Addresses: []vault.Address{
+			{
+				Index:      0,
+				Path:       "imported",
+				Address:    address,
+				PrivateKey: privateKeyToEVMString(privateKey),
+				Label:      "Imported",
+			},
+		},
+	}, nil
+}
+
+// DeriveNextAddress derives the next address for an HD wallet.
+func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault.Address, error) {
+	if wallet.Mnemonic == "" {
+		return wallet, vault.Address{}, fmt.Errorf("derivation is only possible for HD wallets (with a mnemonic)")
+	}
+
+	nextIndex := len(wallet.Addresses)
+
+	hdWallet, err := createEVMWalletFromMnemonic(wallet.Mnemonic)
+	if err != nil {
+		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %w", err)
+	}
+
+	path := fmt.Sprintf("%s/%d", wallet.DerivationPath, nextIndex)
+	privateKey, err := deriveEVMPrivateKey(hdWallet, path)
+	if err != nil {
+		return wallet, vault.Address{}, fmt.Errorf("failed to derive private key: %w", err)
+	}
+
+	address, err := privateKeyToEVMAddress(privateKey)
+	if err != nil {
+		return wallet, vault.Address{}, fmt.Errorf("failed to generate address: %w", err)
+	}
+
+	newAddress := vault.Address{
+		Index:      nextIndex,
+		Path:       path,
+		Address:    address,
+		PrivateKey: privateKeyToEVMString(privateKey),
+		Label:      fmt.Sprintf("Address #%d", nextIndex),
+	}
+
+	wallet.Addresses = append(wallet.Addresses, newAddress)
+	return wallet, newAddress, nil
+}
+
 // ValidateMnemonic checks if a mnemonic phrase is valid according to the BIP-39 standard.
-func ValidateMnemonic(mnemonic string) bool {
+func (m *EVMManager) ValidateMnemonic(mnemonic string) bool {
 	return bip39.IsMnemonicValid(mnemonic)
 }
 
 // ValidatePrivateKey checks the format of an EVM private key.
-func ValidatePrivateKey(pk string) bool {
+func (m *EVMManager) ValidatePrivateKey(pk string) bool {
 	match, _ := regexp.MatchString(`^(0x)?[0-9a-fA-F]{64}$`, pk)
 	return match
 }
 
-// PrivateKeyFromString converts a hex string into a private key object.
-func PrivateKeyFromString(pk string) (*ecdsa.PrivateKey, error) {
-	if !ValidatePrivateKey(pk) {
-		return nil, fmt.Errorf("invalid private key format")
-	}
+// --- EVM Helper Functions ---
 
-	// Trim the 0x prefix if it exists to work with the raw hex.
+func privateKeyFromEVMString(pk string) (*ecdsa.PrivateKey, error) {
 	cleanPk := strings.TrimPrefix(pk, "0x")
-
 	privateKeyBytes, err := hex.DecodeString(cleanPk)
 	if err != nil {
 		return nil, err
 	}
-	privateKey, err := crypto.ToECDSA(privateKeyBytes)
-	if err != nil {
-		return nil, err
-	}
-	return privateKey, nil
+	return crypto.ToECDSA(privateKeyBytes)
 }
 
-// CreateWalletFromMnemonic creates an HD wallet from a mnemonic phrase.
-func CreateWalletFromMnemonic(mnemonic string) (*hdwallet.Wallet, error) {
-	if !ValidateMnemonic(mnemonic) {
-		return nil, fmt.Errorf("invalid mnemonic phrase")
-	}
+func createEVMWalletFromMnemonic(mnemonic string) (*hdwallet.Wallet, error) {
 	seed := bip39.NewSeed(mnemonic, "")
 	return hdwallet.NewFromSeed(seed)
 }
 
-// DerivePrivateKey gets the private key for a specific derivation path.
-func DerivePrivateKey(wallet *hdwallet.Wallet, path string) (*ecdsa.PrivateKey, error) {
+func deriveEVMPrivateKey(wallet *hdwallet.Wallet, path string) (*ecdsa.PrivateKey, error) {
 	derivationPath, err := hdwallet.ParseDerivationPath(path)
 	if err != nil {
 		return nil, err
@@ -71,8 +163,7 @@ func DerivePrivateKey(wallet *hdwallet.Wallet, path string) (*ecdsa.PrivateKey, 
 	return wallet.PrivateKey(account)
 }
 
-// PrivateKeyToAddress converts a private key to its public address.
-func PrivateKeyToAddress(privateKey *ecdsa.PrivateKey) (string, error) {
+func privateKeyToEVMAddress(privateKey *ecdsa.PrivateKey) (string, error) {
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
@@ -81,9 +172,7 @@ func PrivateKeyToAddress(privateKey *ecdsa.PrivateKey) (string, error) {
 	return crypto.PubkeyToAddress(*publicKeyECDSA).Hex(), nil
 }
 
-// PrivateKeyToString converts a private key to its string representation.
-func PrivateKeyToString(privateKey *ecdsa.PrivateKey) string {
+func privateKeyToEVMString(privateKey *ecdsa.PrivateKey) string {
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	// Return the raw hex string without the 0x prefix.
 	return hex.EncodeToString(privateKeyBytes)
 }

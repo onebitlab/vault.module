@@ -20,9 +20,7 @@ var addCmd = &cobra.Command{
 			return err
 		}
 		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
-		if activeVault.Type != "EVM" {
-			return fmt.Errorf("command 'add' is only compatible with EVM vaults, but '%s' is type '%s'", config.Cfg.ActiveVault, activeVault.Type)
-		}
+
 		if programmaticMode {
 			return fmt.Errorf("this command is not available in programmatic mode")
 		}
@@ -37,10 +35,13 @@ var addCmd = &cobra.Command{
 		if _, exists := v[prefix]; exists {
 			return fmt.Errorf("wallet with prefix '%s' already exists", prefix)
 		}
+
+		// The prompt is now generic and doesn't mention specific chains.
 		choice, err := askForInput("Choose source: 1. Mnemonic (HD-wallet), 2. Private Key (single address)")
 		if err != nil {
 			return fmt.Errorf("failed to read input: %w", err)
 		}
+
 		var newWallet vault.Wallet
 		var finalAddress string
 		switch choice {
@@ -49,13 +50,15 @@ var addCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			newWallet, finalAddress, err = actions.CreateWalletFromMnemonic(mnemonic)
+			// Pass the vault type to the action.
+			newWallet, finalAddress, err = actions.CreateWalletFromMnemonic(mnemonic, activeVault.Type)
 		case "2":
 			pkStr, err := askForSecretInput("Enter your private key")
 			if err != nil {
 				return err
 			}
-			newWallet, finalAddress, err = actions.CreateWalletFromPrivateKey(pkStr)
+			// Pass the vault type to the action.
+			newWallet, finalAddress, err = actions.CreateWalletFromPrivateKey(pkStr, activeVault.Type)
 		default:
 			return fmt.Errorf("invalid choice")
 		}

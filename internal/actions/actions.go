@@ -8,78 +8,42 @@ import (
 	"regexp"
 	"strings"
 
+	"vault.module/internal/constants"
 	"vault.module/internal/keys"
 	"vault.module/internal/vault"
 )
 
-// CreateWalletFromMnemonic creates a wallet from a mnemonic.
-// It no longer needs walletType as it's determined by the vault context.
-func CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, string, error) {
-	if !keys.ValidateMnemonic(mnemonic) {
-		return vault.Wallet{}, "", fmt.Errorf("the provided mnemonic phrase is invalid")
-	}
-
-	hdWallet, err := keys.CreateWalletFromMnemonic(mnemonic)
+// CreateWalletFromMnemonic creates a wallet from a mnemonic for a specific vault type.
+func CreateWalletFromMnemonic(mnemonic, vaultType string) (vault.Wallet, string, error) {
+	manager, err := keys.GetKeyManager(vaultType)
 	if err != nil {
-		return vault.Wallet{}, "", fmt.Errorf("failed to create wallet: %w", err)
+		return vault.Wallet{}, "", err
 	}
 
-	path := fmt.Sprintf("%s/0", keys.EVMDerivationPath)
-	privateKey, err := keys.DerivePrivateKey(hdWallet, path)
+	newWallet, err := manager.CreateWalletFromMnemonic(mnemonic)
 	if err != nil {
-		return vault.Wallet{}, "", fmt.Errorf("failed to derive private key: %w", err)
+		return vault.Wallet{}, "", err
 	}
 
-	address, err := keys.PrivateKeyToAddress(privateKey)
-	if err != nil {
-		return vault.Wallet{}, "", fmt.Errorf("failed to generate address: %w", err)
-	}
-
-	newWallet := vault.Wallet{
-		Mnemonic:       mnemonic,
-		DerivationPath: keys.EVMDerivationPath,
-		Addresses: []vault.Address{
-			{
-				Index:      0,
-				Path:       path,
-				Address:    address,
-				PrivateKey: keys.PrivateKeyToString(privateKey),
-				Label:      "Primary",
-			},
-		},
-	}
-	return newWallet, address, nil
+	// The first address is always created.
+	finalAddress := newWallet.Addresses[0].Address
+	return newWallet, finalAddress, nil
 }
 
-// CreateWalletFromPrivateKey creates a wallet from a private key.
-// It no longer needs walletType as it's determined by the vault context.
-func CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, string, error) {
-	if !keys.ValidatePrivateKey(pkStr) {
-		return vault.Wallet{}, "", fmt.Errorf("the provided private key is invalid")
-	}
-
-	privateKey, err := keys.PrivateKeyFromString(pkStr)
+// CreateWalletFromPrivateKey creates a wallet from a private key for a specific vault type.
+func CreateWalletFromPrivateKey(pkStr, vaultType string) (vault.Wallet, string, error) {
+	manager, err := keys.GetKeyManager(vaultType)
 	if err != nil {
-		return vault.Wallet{}, "", fmt.Errorf("failed to process private key: %w", err)
+		return vault.Wallet{}, "", err
 	}
 
-	address, err := keys.PrivateKeyToAddress(privateKey)
+	newWallet, err := manager.CreateWalletFromPrivateKey(pkStr)
 	if err != nil {
-		return vault.Wallet{}, "", fmt.Errorf("failed to generate address: %w", err)
+		return vault.Wallet{}, "", err
 	}
 
-	newWallet := vault.Wallet{
-		Addresses: []vault.Address{
-			{
-				Index:      0,
-				Path:       "imported",
-				Address:    address,
-				PrivateKey: keys.PrivateKeyToString(privateKey),
-				Label:      "Imported",
-			},
-		},
-	}
-	return newWallet, address, nil
+	finalAddress := newWallet.Addresses[0].Address
+	return newWallet, finalAddress, nil
 }
 
 // ValidatePrefix checks if a prefix follows the naming rules.
@@ -98,40 +62,13 @@ func ValidatePrefix(prefix string) error {
 	return nil
 }
 
-// DeriveNextAddress derives the next address for an HD wallet.
-func DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault.Address, error) {
-	if wallet.Mnemonic == "" {
-		return wallet, vault.Address{}, fmt.Errorf("derivation is only possible for HD wallets (with a mnemonic)")
-	}
-
-	nextIndex := len(wallet.Addresses)
-
-	hdWallet, err := keys.CreateWalletFromMnemonic(wallet.Mnemonic)
+// DeriveNextAddress derives the next address using the appropriate key manager.
+func DeriveNextAddress(wallet vault.Wallet, vaultType string) (vault.Wallet, vault.Address, error) {
+	manager, err := keys.GetKeyManager(vaultType)
 	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %w", err)
+		return wallet, vault.Address{}, err
 	}
-
-	path := fmt.Sprintf("%s/%d", wallet.DerivationPath, nextIndex)
-	privateKey, err := keys.DerivePrivateKey(hdWallet, path)
-	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to derive private key: %w", err)
-	}
-
-	address, err := keys.PrivateKeyToAddress(privateKey)
-	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to generate address: %w", err)
-	}
-
-	newAddress := vault.Address{
-		Index:      nextIndex,
-		Path:       path,
-		Address:    address,
-		PrivateKey: keys.PrivateKeyToString(privateKey),
-		Label:      fmt.Sprintf("Address #%d", nextIndex),
-	}
-
-	wallet.Addresses = append(wallet.Addresses, newAddress)
-	return wallet, newAddress, nil
+	return manager.DeriveNextAddress(wallet)
 }
 
 // CloneVault creates a new vault containing only the specified wallets.
@@ -156,15 +93,15 @@ func ExportVault(v vault.Vault) ([]byte, error) {
 }
 
 // ImportWallets imports wallets into an existing vault.
-func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy string) (vault.Vault, string, error) {
+func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy, vaultType string) (vault.Vault, string, error) {
 	var walletsToImport map[string]vault.Wallet
 	var err error
 
 	switch format {
-	case "json":
+	case constants.FormatJSON:
 		walletsToImport, err = parseJsonImport(content)
-	case "key-value":
-		walletsToImport, err = parseKeyValueImport(content)
+	case constants.FormatKeyValue:
+		walletsToImport, err = parseKeyValueImport(content, vaultType)
 	default:
 		return v, "", fmt.Errorf("unknown format: %s", format)
 	}
@@ -180,12 +117,12 @@ func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy string)
 	for prefix, newWalletData := range walletsToImport {
 		if _, exists := v[prefix]; exists {
 			switch conflictPolicy {
-			case "skip":
+			case constants.ConflictPolicySkip:
 				skippedCount++
 				continue
-			case "overwrite":
+			case constants.ConflictPolicyOverwrite:
 				overwrittenCount++
-			case "fail":
+			case constants.ConflictPolicyFail:
 				return v, "", fmt.Errorf("wallet '%s' already exists", prefix)
 			}
 		} else {
@@ -206,15 +143,17 @@ func parseJsonImport(content []byte) (map[string]vault.Wallet, error) {
 	return importedVault, nil
 }
 
-func parseKeyValueImport(content []byte) (map[string]vault.Wallet, error) {
+func parseKeyValueImport(content []byte, vaultType string) (map[string]vault.Wallet, error) {
 	wallets := make(map[string]vault.Wallet)
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
-	lineNumber := 0
-
 	re := regexp.MustCompile(`[:=]`)
 
+	manager, err := keys.GetKeyManager(vaultType)
+	if err != nil {
+		return nil, err
+	}
+
 	for scanner.Scan() {
-		lineNumber++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -222,29 +161,29 @@ func parseKeyValueImport(content []byte) (map[string]vault.Wallet, error) {
 
 		parts := re.Split(line, 2)
 		if len(parts) != 2 {
-			continue // Silently ignore invalid lines
+			continue
 		}
 		prefix := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 		value = strings.Trim(value, "\"")
 
 		if err := ValidatePrefix(prefix); err != nil {
-			continue // Silently ignore invalid prefixes
+			continue
 		}
 
 		var newWallet vault.Wallet
-		var err error
+		var creationErr error
 
-		if keys.ValidateMnemonic(value) {
-			newWallet, _, err = CreateWalletFromMnemonic(value)
-		} else if keys.ValidatePrivateKey(value) {
-			newWallet, _, err = CreateWalletFromPrivateKey(value)
+		if manager.ValidateMnemonic(value) {
+			newWallet, creationErr = manager.CreateWalletFromMnemonic(value)
+		} else if manager.ValidatePrivateKey(value) {
+			newWallet, creationErr = manager.CreateWalletFromPrivateKey(value)
 		} else {
-			continue // Silently ignore lines with invalid keys/mnemonics
+			continue
 		}
 
-		if err != nil {
-			continue // Silently ignore creation errors
+		if creationErr != nil {
+			continue
 		}
 		wallets[prefix] = newWallet
 	}

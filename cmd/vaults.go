@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"vault.module/internal/config"
+	"vault.module/internal/constants"
 
 	"github.com/spf13/cobra"
 )
@@ -45,7 +46,7 @@ var vaultsListCmd = &cobra.Command{
 				fmt.Printf("   %s (type: %s, encryption: %s)\n", name, details.Type, details.Encryption)
 			}
 			fmt.Printf("     - Key File: %s\n", details.KeyFile)
-			if details.Encryption == "yubikey" {
+			if details.Encryption == constants.EncryptionYubiKey {
 				fmt.Printf("     - Recipients File: %s\n", details.RecipientsFile)
 			}
 		}
@@ -64,10 +65,10 @@ var vaultsAddCmd = &cobra.Command{
 			return fmt.Errorf("a vault with the name '%s' already exists", name)
 		}
 
-		if encryptionMethod != "yubikey" && encryptionMethod != "passphrase" {
+		if encryptionMethod != constants.EncryptionYubiKey && encryptionMethod != constants.EncryptionPassphrase {
 			return fmt.Errorf("invalid encryption method '%s', must be 'yubikey' or 'passphrase'", encryptionMethod)
 		}
-		if encryptionMethod == "yubikey" && recipientsFile == "" {
+		if encryptionMethod == constants.EncryptionYubiKey && recipientsFile == "" {
 			return fmt.Errorf("--recipientsfile is required for yubikey encryption")
 		}
 
@@ -158,7 +159,7 @@ func init() {
 	vaultsAddCmd.Flags().StringVar(&keyFile, "keyfile", "", "Path to the encrypted key file for the new vault (required)")
 	vaultsAddCmd.Flags().StringVar(&recipientsFile, "recipientsfile", "", "Path to the recipients file (required for yubikey encryption)")
 	vaultsAddCmd.Flags().StringVar(&vaultType, "type", "", "Type of the vault, e.g., EVM (required)")
-	vaultsAddCmd.Flags().StringVar(&encryptionMethod, "encryption", "yubikey", "Encryption method: 'yubikey' or 'passphrase'")
+	vaultsAddCmd.Flags().StringVar(&encryptionMethod, "encryption", constants.EncryptionYubiKey, "Encryption method: 'yubikey' or 'passphrase'")
 	_ = vaultsAddCmd.MarkFlagRequired("keyfile")
 	_ = vaultsAddCmd.MarkFlagRequired("type")
 }
