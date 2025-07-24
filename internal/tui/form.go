@@ -1,4 +1,3 @@
-// File: internal/tui/form.go
 package tui
 
 import (
@@ -9,9 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// --- Form Model ---
-
 // FormFieldType определяет тип поля: input или select
+// (select реализован через popup внутри формы)
 type FormFieldType int
 
 const (
@@ -19,18 +17,15 @@ const (
 	FieldSelect
 )
 
-// FormField represents a single input field in a form.
 type FormField struct {
 	input     textinput.Model
-	validator func(string) error // A function to validate the field's value.
-	err       error              // Validation error for this field.
-	// Для select
+	validator func(string) error
+	err       error
 	fieldType FormFieldType
 	options   []string
 	selected  int
 }
 
-// NewFormField для обычного текстового поля
 func NewFormField(prompt, placeholder string, charLimit int, isPassword bool) FormField {
 	ti := textinput.New()
 	ti.Prompt = prompt + ": "
@@ -42,7 +37,6 @@ func NewFormField(prompt, placeholder string, charLimit int, isPassword bool) Fo
 	return FormField{input: ti, fieldType: FieldInput}
 }
 
-// NewSelectField для поля выбора из списка
 func NewSelectField(prompt string, options []string, defaultIdx int) FormField {
 	if defaultIdx < 0 || defaultIdx >= len(options) {
 		defaultIdx = 0
@@ -51,36 +45,31 @@ func NewSelectField(prompt string, options []string, defaultIdx int) FormField {
 		fieldType: FieldSelect,
 		options:   options,
 		selected:  defaultIdx,
-		input:     textinput.New(), // не используется, но нужен для совместимости
+		input:     textinput.New(),
 	}
 }
 
-// WithValidator adds a validation function to the field.
 func (f FormField) WithValidator(v func(string) error) FormField {
 	f.validator = v
 	return f
 }
-
-// WithValue sets an initial value for the field.
 func (f FormField) WithValue(val string) FormField {
 	f.input.SetValue(val)
 	return f
 }
 
-// FormModel represents a complete form with multiple fields.
 type FormModel struct {
-	parent      *model // Reference to the main model for styles and dimensions
+	parent      *Model
 	title       string
 	fields      []FormField
 	focusIndex  int
 	submitted   bool
 	cancelled   bool
-	OnSubmit    func([]string) tea.Cmd // Callback on successful submission. Returns a command.
+	OnSubmit    func([]string) tea.Cmd
 	popupSelect *PopupSelectModel
 }
 
-// NewForm creates a new form model.
-func NewForm(parent *model, title string, fields []FormField, onSubmit func([]string) tea.Cmd) *FormModel {
+func NewForm(parent *Model, title string, fields []FormField, onSubmit func([]string) tea.Cmd) *FormModel {
 	fm := &FormModel{
 		parent:   parent,
 		title:    title,
@@ -93,12 +82,10 @@ func NewForm(parent *model, title string, fields []FormField, onSubmit func([]st
 	return fm
 }
 
-// Init initializes the form.
 func (m *FormModel) Init() tea.Cmd {
 	return textinput.Blink
 }
 
-// Update handles messages for the form model.
 func (m *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.submitted || m.cancelled {
 		return m, nil
@@ -127,11 +114,10 @@ func (m *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return popViewMsg{} }
 		case tea.KeyEnter:
 			if field.fieldType == FieldSelect {
-				// Открываем popupSelect (внутри формы)
 				m.popupSelect = NewPopupSelectModel(m, field.input.Prompt, field.options, field.selected, func(idx int) {
 					field.selected = idx
 					m.popupSelect = nil
-					m.nextField() // автоматически перейти к следующему полю
+					m.nextField()
 				})
 				return m, nil
 			}
@@ -169,33 +155,28 @@ func (m *FormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the form.
 func (m *FormModel) View() string {
 	var b strings.Builder
-	b.WriteString(m.parent.styles.Title.Render(m.title) + "\n\n")
+	b.WriteString(titleStyle.Render(m.title) + "\n\n")
 
 	for _, field := range m.fields {
 		if field.fieldType == FieldSelect {
-			// Только выбранное значение и подсказка
 			b.WriteString(field.input.Prompt + "[" + field.options[field.selected] + "] (Enter для выбора)\n")
 		} else {
 			b.WriteString(field.input.View() + "\n")
 		}
 		if field.err != nil {
-			errorStyle := m.parent.styles.Error.Copy().Width(m.parent.width).PaddingLeft(len(field.input.Prompt))
+			errorStyle := errorStyle.Copy().Width(m.parent.width).PaddingLeft(len(field.input.Prompt))
 			b.WriteString(errorStyle.Render(field.err.Error()) + "\n")
 		}
 	}
-
 	if m.popupSelect != nil {
 		b.WriteString(m.popupSelect.View())
 	}
-
-	b.WriteString("\n" + m.parent.styles.Help.Render("(enter to submit, esc to cancel, tab/стрелки для навигации)"))
-	return m.parent.styles.Bordered.Render(b.String())
+	b.WriteString("\n" + statusStyle.Render("(enter to submit, esc to cancel, tab/стрелки для навигации)"))
+	return b.String()
 }
 
-// Values returns the values of all fields in the form.
 func (m *FormModel) Values() []string {
 	values := make([]string, len(m.fields))
 	for i, field := range m.fields {
@@ -208,7 +189,6 @@ func (m *FormModel) Values() []string {
 	return values
 }
 
-// Help returns the key bindings for the form view.
 func (m *FormModel) Help() []key.Binding {
 	return []key.Binding{
 		key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "next/submit")),
@@ -216,12 +196,9 @@ func (m *FormModel) Help() []key.Binding {
 	}
 }
 
-// Title returns the title of the form.
 func (m *FormModel) Title() string {
 	return m.title
 }
-
-// --- Internal methods ---
 
 func (m *FormModel) nextField() {
 	m.fields[m.focusIndex].input.Blur()
@@ -261,7 +238,7 @@ func (m *FormModel) submitForm() (*FormModel, tea.Cmd) {
 	return m, nil
 }
 
-// PopupSelectModel — отдельный view для выбора значения из списка
+// PopupSelectModel — отдельный popup для выбора значения
 
 type PopupSelectModel struct {
 	parent   *FormModel
@@ -320,3 +297,5 @@ func (m *PopupSelectModel) View() string {
 }
 func (m *PopupSelectModel) Help() []key.Binding { return nil }
 func (m *PopupSelectModel) Title() string       { return m.title }
+
+type popViewMsg struct{}

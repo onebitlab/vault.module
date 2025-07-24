@@ -66,10 +66,10 @@ var getCmd = &cobra.Command{
 		isSecret := false
 		if field == "mnemonic" {
 			audit.Logger.Warn("Secret data accessed", slog.String("command", "get"), slog.String("vault", config.Cfg.ActiveVault), slog.String("prefix", prefix), slog.String("field", "mnemonic"))
-			if wallet.Mnemonic == "" {
+			if wallet.Mnemonic == nil || wallet.Mnemonic.String() == "" {
 				return fmt.Errorf("wallet '%s' does not have a mnemonic phrase", prefix)
 			}
-			result = wallet.Mnemonic
+			result = wallet.Mnemonic.String()
 			isSecret = true
 		} else {
 			var addressData *vault.Address
@@ -90,7 +90,10 @@ var getCmd = &cobra.Command{
 				result = addressData.Address
 			case "privatekey":
 				audit.Logger.Warn("Secret data accessed", slog.String("command", "get"), slog.String("vault", config.Cfg.ActiveVault), slog.String("prefix", prefix), slog.Int("index", getIndex), slog.String("field", "privateKey"))
-				result = addressData.PrivateKey
+				if addressData.PrivateKey == nil {
+					return fmt.Errorf("address with index %d does not have a private key", getIndex)
+				}
+				result = addressData.PrivateKey.String()
 				isSecret = true
 			default:
 				return fmt.Errorf("unknown field '%s'", args[1])
