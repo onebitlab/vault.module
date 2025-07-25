@@ -2,8 +2,8 @@
 package utils
 
 import (
-	"fmt"
-	"strings"
+	"fmt"     // ❌ Добавлен недостающий импорт
+	"strings" // ❌ Добавлен недостающий импорт
 	"sync"
 	"time"
 )

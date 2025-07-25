@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
+	"sync" // ❌ Добавлен недостающий импорт
 	"time"
 )
 
