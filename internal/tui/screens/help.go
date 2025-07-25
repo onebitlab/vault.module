@@ -58,6 +58,6 @@ For more information, visit: https://github.com/onebitlab/vault.module
 `
 
 	return theme.Title.Render("Help & Documentation") + "\n\n" +
-		theme.Info.Render(helpText) + "\n\n" +
+		theme.InfoStyle.Render(helpText) + "\n\n" + // ❌ Исправлено: theme.Info -> theme.InfoStyle
 		theme.Status.Render("ESC: Back")
 }

@@ -222,7 +222,7 @@ func (s *SettingsScreen) View() string {
 	// Error display
 	if s.err != nil {
 		content.WriteString("\n\n")
-		content.WriteString(theme.Error.Render("Error: " + s.err.Error()))
+		content.WriteString(theme.ErrorStyle.Render("Error: " + s.err.Error()))
 	}
 
 	return content.String()
@@ -234,7 +234,7 @@ func (s *SettingsScreen) renderEditForm(theme *utils.Theme) string {
 
 	content.WriteString(theme.Subtitle.Render("Edit Setting: " + s.currentSetting.title))
 	content.WriteString("\n\n")
-	content.WriteString(theme.Info.Render(s.currentSetting.description))
+	content.WriteString(theme.InfoStyle.Render(s.currentSetting.description))
 	content.WriteString("\n\n")
 
 	switch s.currentSetting.settingType {

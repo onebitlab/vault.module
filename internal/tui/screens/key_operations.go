@@ -178,9 +178,9 @@ func (s *KeyOperationsScreen) View() string {
 	// Current vault info
 	vaultName, _ := stateManager.GetCurrentVault()
 	if vaultName != "" {
-		content.WriteString(theme.Info.Render("Current vault: " + vaultName))
+		content.WriteString(theme.InfoStyle.Render("Current vault: " + vaultName))
 	} else {
-		content.WriteString(theme.Warning.Render("No vault selected - some operations may be unavailable"))
+		content.WriteString(theme.WarningStyle.Render("No vault selected - some operations may be unavailable"))
 	}
 	content.WriteString("\n\n")
 
@@ -195,7 +195,7 @@ func (s *KeyOperationsScreen) View() string {
 	// Error display
 	if s.err != nil {
 		content.WriteString("\n\n")
-		content.WriteString(theme.Error.Render("Error: " + s.err.Error()))
+		content.WriteString(theme.ErrorStyle.Render("Error: " + s.err.Error()))
 	}
 
 	return content.String()
@@ -233,7 +233,7 @@ func (s *KeyOperationsScreen) renderOperationForm(theme *utils.Theme) string {
 	if s.resultText != "" {
 		content.WriteString(theme.Subtitle.Render("Result:"))
 		content.WriteString("\n\n")
-		content.WriteString(theme.Info.Render(s.resultText))
+		content.WriteString(theme.InfoStyle.Render(s.resultText))
 		content.WriteString("\n\n")
 	}
 

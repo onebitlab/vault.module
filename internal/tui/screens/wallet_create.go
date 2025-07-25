@@ -140,12 +140,12 @@ func (s *WalletCreateScreen) View() string {
 	content.WriteString("\n\n")
 
 	// Vault info
-	content.WriteString(theme.Info.Render("Vault: " + s.vaultName))
+	content.WriteString(theme.InfoStyle.Render("Vault: " + s.vaultName))
 	content.WriteString("\n\n")
 
 	// Progress indicator
 	progress := fmt.Sprintf("Step %d of %d", s.step+1, s.maxSteps)
-	content.WriteString(theme.Info.Render(progress))
+	content.WriteString(theme.InfoStyle.Render(progress))
 	content.WriteString("\n\n")
 
 	// Step content
@@ -163,7 +163,7 @@ func (s *WalletCreateScreen) View() string {
 	// Error display
 	if s.err != nil {
 		content.WriteString("\n\n")
-		content.WriteString(theme.Error.Render("Error: " + s.err.Error()))
+		content.WriteString(theme.ErrorStyle.Render("Error: " + s.err.Error()))
 	}
 
 	// Help text
@@ -249,13 +249,13 @@ func (s *WalletCreateScreen) renderConfirmStep(theme *utils.Theme) string {
 	content.WriteString("Please confirm the wallet details:")
 	content.WriteString("\n\n")
 
-	content.WriteString(fmt.Sprintf("Prefix: %s\n", theme.Info.Render(s.prefixInput.Value())))
-	content.WriteString(fmt.Sprintf("Blockchain: %s\n", theme.Info.Render(s.blockchainOpts[s.blockchainType])))
-	content.WriteString(fmt.Sprintf("Derivation Path: %s\n", theme.Info.Render(s.derivationPath.Value())))
-	content.WriteString(fmt.Sprintf("Address Count: %s\n", theme.Info.Render(s.addressCount.Value())))
+	content.WriteString(fmt.Sprintf("Prefix: %s\n", theme.InfoStyle.Render(s.prefixInput.Value())))
+	content.WriteString(fmt.Sprintf("Blockchain: %s\n", theme.InfoStyle.Render(s.blockchainOpts[s.blockchainType])))
+	content.WriteString(fmt.Sprintf("Derivation Path: %s\n", theme.InfoStyle.Render(s.derivationPath.Value())))
+	content.WriteString(fmt.Sprintf("Address Count: %s\n", theme.InfoStyle.Render(s.addressCount.Value())))
 
 	content.WriteString("\n")
-	content.WriteString(theme.Warning.Render("Press Enter to create the wallet"))
+	content.WriteString(theme.WarningStyle.Render("Press Enter to create the wallet"))
 
 	return content.String()
 }

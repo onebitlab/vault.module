@@ -77,7 +77,7 @@ func (s *VaultManagerScreen) refreshVaultList() {
 			vaultType:   details.Type,
 			isActive:    name == config.Cfg.ActiveVault,
 			isLoaded:    name == currentVaultName,
-			description: fmt.Sprintf("Created: %s", details.CreatedAt),
+			description: "Vault configuration",
 		})
 	}
 
@@ -158,9 +158,9 @@ func (s *VaultManagerScreen) View() string {
 	currentVaultName, _ := stateManager.GetCurrentVault()
 	var statusInfo string
 	if currentVaultName != "" {
-		statusInfo = theme.Success.Render("Current vault: " + currentVaultName)
+		statusInfo = theme.SuccessStyle.Render("Current vault: " + currentVaultName)
 	} else {
-		statusInfo = theme.Warning.Render("No vault loaded")
+		statusInfo = theme.WarningStyle.Render("No vault loaded")
 	}
 
 	helpText := theme.Status.Render(

@@ -133,9 +133,9 @@ func (s *MainMenuScreen) View() string {
 	vaultName, _ := stateManager.GetCurrentVault()
 	var vaultInfo string
 	if vaultName != "" {
-		vaultInfo = theme.Info.Render("Current vault: " + vaultName)
+		vaultInfo = theme.InfoStyle.Render("Current vault: " + vaultName)
 	} else {
-		vaultInfo = theme.Warning.Render("No vault selected")
+		vaultInfo = theme.WarningStyle.Render("No vault selected")
 	}
 
 	return theme.Title.Render("Vault Module - Main Menu") + "\n\n" +

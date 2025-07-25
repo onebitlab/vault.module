@@ -32,6 +32,6 @@ func (s *AuditViewerScreen) View() string {
 	theme := stateManager.GetTheme()
 
 	return theme.Title.Render("Audit Logs") + "\n\n" +
-		theme.Info.Render("Audit log viewer functionality will be implemented here") + "\n\n" +
+		theme.InfoStyle.Render("Audit log viewer functionality will be implemented here") + "\n\n" + // ❌ Исправлено: theme.Info -> theme.InfoStyle
 		theme.Status.Render("ESC: Back")
 }

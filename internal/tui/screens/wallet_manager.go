@@ -152,7 +152,7 @@ func (s *WalletManagerScreen) View() string {
 	stateManager := utils.GetStateManager()
 	theme := stateManager.GetTheme()
 
-	vaultInfo := theme.Info.Render("Vault: " + s.vaultName)
+	vaultInfo := theme.InfoStyle.Render("Vault: " + s.vaultName)
 	walletCount := theme.Status.Render(fmt.Sprintf("Total wallets: %d", len(s.vault)))
 
 	helpText := theme.Status.Render(

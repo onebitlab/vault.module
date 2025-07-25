@@ -165,13 +165,13 @@ func (c *SecureInputComponent) View() string {
 	// Show visibility indicator
 	if c.showValue {
 		content.WriteString(" ")
-		content.WriteString(c.theme.Warning.Render("👁"))
+		content.WriteString(c.theme.WarningStyle.Render("👁"))
 	}
 
 	// Show error message
 	if c.errorMsg != "" {
 		content.WriteString("\n")
-		content.WriteString(c.theme.Error.Render("Error: " + c.errorMsg))
+		content.WriteString(c.theme.ErrorStyle.Render("Error: " + c.errorMsg))
 	}
 
 	// Show help text

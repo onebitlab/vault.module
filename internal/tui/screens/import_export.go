@@ -229,9 +229,9 @@ func (s *ImportExportScreen) View() string {
 	// Current vault info
 	vaultName, _ := stateManager.GetCurrentVault()
 	if vaultName != "" {
-		content.WriteString(theme.Info.Render("Current vault: " + vaultName))
+		content.WriteString(theme.InfoStyle.Render("Current vault: " + vaultName))
 	} else {
-		content.WriteString(theme.Warning.Render("No vault selected"))
+		content.WriteString(theme.WarningStyle.Render("No vault selected"))
 	}
 	content.WriteString("\n\n")
 
@@ -248,7 +248,7 @@ func (s *ImportExportScreen) View() string {
 	// Error display
 	if s.err != nil {
 		content.WriteString("\n\n")
-		content.WriteString(theme.Error.Render("Error: " + s.err.Error()))
+		content.WriteString(theme.ErrorStyle.Render("Error: " + s.err.Error()))
 	}
 
 	return content.String()
@@ -298,7 +298,7 @@ func (s *ImportExportScreen) renderOperationForm(theme *utils.Theme) string {
 	if s.resultText != "" {
 		content.WriteString(theme.Subtitle.Render("Result:"))
 		content.WriteString("\n\n")
-		content.WriteString(theme.Success.Render(s.resultText))
+		content.WriteString(theme.SuccessStyle.Render(s.resultText))
 		content.WriteString("\n\n")
 	}
 
@@ -335,21 +335,21 @@ func (s *ImportExportScreen) getOperationTitle(operation string) string {
 func (s *ImportExportScreen) getOperationInfo(operation string, theme *utils.Theme) string {
 	switch operation {
 	case "export_vault":
-		return theme.Info.Render("This will export the entire vault including all wallets and keys to an encrypted file.")
+		return theme.InfoStyle.Render("This will export the entire vault including all wallets and keys to an encrypted file.")
 	case "import_vault":
-		return theme.Warning.Render("This will import a vault from file. Existing vault with same name will be overwritten.")
+		return theme.WarningStyle.Render("This will import a vault from file. Existing vault with same name will be overwritten.")
 	case "export_wallet":
-		return theme.Info.Render("Export a specific wallet from the current vault.")
+		return theme.InfoStyle.Render("Export a specific wallet from the current vault.")
 	case "import_wallet":
-		return theme.Info.Render("Import a wallet into the current vault.")
+		return theme.InfoStyle.Render("Import a wallet into the current vault.")
 	case "export_mnemonic":
-		return theme.Warning.Render("⚠️  Mnemonic phrases are highly sensitive. Ensure secure storage.")
+		return theme.WarningStyle.Render("⚠️  Mnemonic phrases are highly sensitive. Ensure secure storage.")
 	case "import_mnemonic":
-		return theme.Warning.Render("⚠️  Only import mnemonic phrases from trusted sources.")
+		return theme.WarningStyle.Render("⚠️  Only import mnemonic phrases from trusted sources.")
 	case "backup_config":
-		return theme.Info.Render("Backup application settings and configuration.")
+		return theme.InfoStyle.Render("Backup application settings and configuration.")
 	case "restore_config":
-		return theme.Warning.Render("This will overwrite current application configuration.")
+		return theme.WarningStyle.Render("This will overwrite current application configuration.")
 	default:
 		return ""
 	}

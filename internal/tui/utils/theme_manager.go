@@ -5,9 +5,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Theme содержит все стили для TUI
+// Theme contains all styles for TUI
 type Theme struct {
-	// Основные цвета
+	// Basic colors
 	Primary    lipgloss.Color
 	Secondary  lipgloss.Color
 	Success    lipgloss.Color
@@ -17,39 +17,39 @@ type Theme struct {
 	Background lipgloss.Color
 	Foreground lipgloss.Color
 
-	// Стили компонентов
-	Title    lipgloss.Style
-	Subtitle lipgloss.Style
-	Status   lipgloss.Style
-	Error    lipgloss.Style
-	Success  lipgloss.Style
-	Warning  lipgloss.Style
-	Info     lipgloss.Style
+	// Component styles
+	Title        lipgloss.Style
+	Subtitle     lipgloss.Style
+	Status       lipgloss.Style
+	ErrorStyle   lipgloss.Style // ❌ Исправлено: было Error
+	SuccessStyle lipgloss.Style // ❌ Исправлено: было Success
+	WarningStyle lipgloss.Style // ❌ Исправлено: было Warning
+	InfoStyle    lipgloss.Style // ❌ Исправлено: было Info
 
-	// Стили навигации
+	// Navigation styles
 	Breadcrumb lipgloss.Style
 	Navigation lipgloss.Style
 
-	// Стили форм
+	// Form styles
 	Input       lipgloss.Style
 	InputFocus  lipgloss.Style
 	Button      lipgloss.Style
 	ButtonFocus lipgloss.Style
 
-	// Стили списков
+	// List styles
 	ListItem  lipgloss.Style
 	ListFocus lipgloss.Style
 	ListTitle lipgloss.Style
 
-	// Стили таблиц
+	// Table styles
 	TableHeader lipgloss.Style
 	TableRow    lipgloss.Style
 	TableFocus  lipgloss.Style
 }
 
-// GetDefaultTheme возвращает тему по умолчанию
+// GetDefaultTheme returns the default theme
 func GetDefaultTheme() *Theme {
-	// Определяем цвета
+	// Define colors
 	primary := lipgloss.Color("#25A065")
 	secondary := lipgloss.Color("#04B575")
 	success := lipgloss.Color("#00FF00")
@@ -70,7 +70,7 @@ func GetDefaultTheme() *Theme {
 		Foreground: foreground,
 	}
 
-	// Основные стили
+	// Basic styles
 	theme.Title = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFDF5")).
 		Background(primary).
@@ -99,7 +99,7 @@ func GetDefaultTheme() *Theme {
 	theme.InfoStyle = lipgloss.NewStyle().
 		Foreground(info)
 
-	// Навигация
+	// Navigation
 	theme.Breadcrumb = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#888888")).
 		Italic(true)
@@ -110,7 +110,7 @@ func GetDefaultTheme() *Theme {
 		BorderForeground(primary).
 		Padding(0, 1)
 
-	// Формы
+	// Forms
 	theme.Input = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#555555")).
@@ -134,7 +134,7 @@ func GetDefaultTheme() *Theme {
 		Border(lipgloss.RoundedBorder()).
 		Bold(true)
 
-	// Списки
+	// Lists
 	theme.ListItem = lipgloss.NewStyle().
 		Foreground(foreground).
 		Padding(0, 2)
@@ -150,7 +150,7 @@ func GetDefaultTheme() *Theme {
 		Bold(true).
 		Underline(true)
 
-	// Таблицы
+	// Tables
 	theme.TableHeader = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#FFFDF5")).
 		Background(primary).
@@ -170,22 +170,22 @@ func GetDefaultTheme() *Theme {
 	return theme
 }
 
-// GetDarkTheme возвращает темную тему
+// GetDarkTheme returns a dark theme
 func GetDarkTheme() *Theme {
 	theme := GetDefaultTheme()
 
-	// Модифицируем цвета для темной темы
+	// Modify colors for dark theme
 	theme.Background = lipgloss.Color("#1a1a1a")
 	theme.Foreground = lipgloss.Color("#e0e0e0")
 
 	return theme
 }
 
-// GetLightTheme возвращает светлую тему
+// GetLightTheme returns a light theme
 func GetLightTheme() *Theme {
 	theme := GetDefaultTheme()
 
-	// Модифицируем цвета для светлой темы
+	// Modify colors for light theme
 	theme.Background = lipgloss.Color("#ffffff")
 	theme.Foreground = lipgloss.Color("#000000")
 	theme.Primary = lipgloss.Color("#2d5a3d")

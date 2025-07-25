@@ -128,18 +128,18 @@ func (c *ConfirmationComponent) View() string {
 
 	// Title style based on confirmation type
 	var titleStyle = c.theme.Title
-	var messageStyle = c.theme.Info
+	var messageStyle = c.theme.InfoStyle // ❌ Исправлено: используем стиль вместо цвета
 
 	switch c.confirmType {
 	case ConfirmationTypeWarning:
-		titleStyle = c.theme.Warning
-		messageStyle = c.theme.Warning
+		titleStyle = c.theme.WarningStyle   // ❌ Исправлено
+		messageStyle = c.theme.WarningStyle // ❌ Исправлено
 	case ConfirmationTypeError:
-		titleStyle = c.theme.Error
-		messageStyle = c.theme.Error
+		titleStyle = c.theme.ErrorStyle   // ❌ Исправлено
+		messageStyle = c.theme.ErrorStyle // ❌ Исправлено
 	case ConfirmationTypeDanger:
-		titleStyle = c.theme.Error
-		messageStyle = c.theme.Error
+		titleStyle = c.theme.ErrorStyle   // ❌ Исправлено
+		messageStyle = c.theme.ErrorStyle // ❌ Исправлено
 	}
 
 	// Create dialog box
@@ -188,7 +188,7 @@ func (c *ConfirmationComponent) renderButtons(dialogWidth int) string {
 	} else {
 		confirmStyle = c.theme.ButtonFocus
 		if c.confirmType == ConfirmationTypeDanger {
-			confirmStyle = c.theme.Error
+			confirmStyle = c.theme.ErrorStyle // ❌ Исправлено
 		}
 	}
 

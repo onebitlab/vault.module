@@ -117,7 +117,7 @@ func (s *VaultCreateScreen) View() string {
 
 	// Progress indicator
 	progress := fmt.Sprintf("Step %d of %d", s.step+1, s.maxSteps)
-	content.WriteString(theme.Info.Render(progress))
+	content.WriteString(theme.InfoStyle.Render(progress))
 	content.WriteString("\n\n")
 
 	// Step content
@@ -133,7 +133,7 @@ func (s *VaultCreateScreen) View() string {
 	// Error display
 	if s.err != nil {
 		content.WriteString("\n\n")
-		content.WriteString(theme.Error.Render("Error: " + s.err.Error()))
+		content.WriteString(theme.ErrorStyle.Render("Error: " + s.err.Error()))
 	}
 
 	// Help text
@@ -193,12 +193,12 @@ func (s *VaultCreateScreen) renderConfirmStep(theme *utils.Theme) string {
 	content.WriteString("Please confirm the vault details:")
 	content.WriteString("\n\n")
 
-	content.WriteString(fmt.Sprintf("Name: %s\n", theme.Info.Render(s.nameInput.Value())))
-	content.WriteString(fmt.Sprintf("Type: %s\n", theme.Info.Render(s.typeOptions[s.typeSelected])))
+	content.WriteString(fmt.Sprintf("Name: %s\n", theme.InfoStyle.Render(s.nameInput.Value())))
+	content.WriteString(fmt.Sprintf("Type: %s\n", theme.InfoStyle.Render(s.typeOptions[s.typeSelected])))
 	content.WriteString(fmt.Sprintf("Description: %s\n", theme.Status.Render(s.getTypeDescription(s.typeOptions[s.typeSelected]))))
 
 	content.WriteString("\n")
-	content.WriteString(theme.Warning.Render("Press Enter to create the vault"))
+	content.WriteString(theme.WarningStyle.Render("Press Enter to create the vault"))
 
 	return content.String()
 }

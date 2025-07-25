@@ -240,9 +240,9 @@ func (s *WalletDetailScreen) View() string {
 func (s *WalletDetailScreen) renderWalletInfo(theme *utils.Theme) string {
 	var info strings.Builder
 
-	info.WriteString(fmt.Sprintf("Vault: %s | ", theme.Info.Render(s.vaultName)))
-	info.WriteString(fmt.Sprintf("Prefix: %s | ", theme.Info.Render(s.walletPrefix)))
-	info.WriteString(fmt.Sprintf("Addresses: %s | ", theme.Success.Render(fmt.Sprintf("%d", len(s.wallet.Addresses)))))
+	info.WriteString(fmt.Sprintf("Vault: %s | ", theme.InfoStyle.Render(s.vaultName)))
+	info.WriteString(fmt.Sprintf("Prefix: %s | ", theme.InfoStyle.Render(s.walletPrefix)))
+	info.WriteString(fmt.Sprintf("Addresses: %s | ", theme.SuccessStyle.Render(fmt.Sprintf("%d", len(s.wallet.Addresses)))))
 	info.WriteString(fmt.Sprintf("Created: %s", theme.Status.Render(s.wallet.CreatedAt)))
 
 	return info.String()
@@ -274,13 +274,13 @@ func (s *WalletDetailScreen) renderKeysView(theme *utils.Theme) string {
 	var content strings.Builder
 
 	if !s.showPrivate {
-		content.WriteString(theme.Warning.Render("Private keys are hidden for security"))
+		content.WriteString(theme.WarningStyle.Render("Private keys are hidden for security"))
 		content.WriteString("\n\n")
 		content.WriteString("Press 'P' to toggle private key visibility")
 		content.WriteString("\n\n")
 		content.WriteString(theme.Status.Render("Public keys and addresses are always safe to display"))
 	} else {
-		content.WriteString(theme.Error.Render("⚠️  PRIVATE KEYS VISIBLE - ENSURE SCREEN PRIVACY  ⚠️"))
+		content.WriteString(theme.ErrorStyle.Render("⚠️  PRIVATE KEYS VISIBLE - ENSURE SCREEN PRIVACY  ⚠️"))
 		content.WriteString("\n\n")
 
 		// Display keys (simplified for demo)
@@ -290,7 +290,7 @@ func (s *WalletDetailScreen) renderKeysView(theme *utils.Theme) string {
 			content.WriteString(fmt.Sprintf("Public Key: %s", details.PublicKey))
 			content.WriteString("\n")
 			if s.showPrivate {
-				content.WriteString(theme.Error.Render(fmt.Sprintf("Private Key: %s", details.PrivateKey)))
+				content.WriteString(theme.ErrorStyle.Render(fmt.Sprintf("Private Key: %s", details.PrivateKey)))
 			}
 			content.WriteString("\n\n")
 		}

@@ -48,7 +48,7 @@ type YubiKeyAuthComponent struct {
 func NewYubiKeyAuthComponent(theme *utils.Theme, requirePIN bool) *YubiKeyAuthComponent {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = theme.Info
+	s.Style = theme.InfoStyle
 
 	pinInput := textinput.New()
 	pinInput.Placeholder = "Enter YubiKey PIN"
