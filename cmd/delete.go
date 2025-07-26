@@ -104,6 +104,8 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(deleteCmd)
-	deleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "Skip confirmation prompt.")
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
+	deleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "Delete without confirmation prompt")
 }

@@ -71,6 +71,8 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(renameCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
 	renameCmd.Flags().BoolVar(&renameYesFlag, "yes", false, "Rename without confirmation prompt")
 }

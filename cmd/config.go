@@ -70,7 +70,9 @@ var configGetCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(configCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка подкоманд
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configGetCmd)
 }

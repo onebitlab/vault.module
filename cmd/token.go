@@ -98,7 +98,9 @@ var tokenShowCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(tokenCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка подкоманд
 	tokenCmd.AddCommand(tokenGenerateCmd)
 	tokenCmd.AddCommand(tokenShowCmd)
 }

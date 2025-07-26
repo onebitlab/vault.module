@@ -126,6 +126,8 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(exportCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
 	exportCmd.Flags().BoolVar(&exportYes, "yes", false, "Skip confirmation prompt.")
 }

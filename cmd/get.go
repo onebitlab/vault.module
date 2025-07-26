@@ -165,7 +165,6 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(getCmd)
 	getCmd.Flags().IntVar(&getIndex, "index", 0, "Index of the address within an HD wallet.")
 	getCmd.Flags().BoolVar(&getJson, "json", false, "Output all wallet data in JSON format.")
 	getCmd.Flags().BoolVarP(&getCopy, "copy", "c", false, "Copy secret to clipboard (now default behavior for secrets in interactive mode).")

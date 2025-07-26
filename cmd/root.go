@@ -35,7 +35,6 @@ var rootCmd = &cobra.Command{
 		if cmd.Use != "vault.module" {
 			audit.Logger.Info("Command executed", slog.String("command", cmd.Use))
 		}
-		// ... (the rest of the function remains the same)
 		return nil
 	},
 }
@@ -51,4 +50,25 @@ func init() {
 	if os.Getenv("VAULT_MODULE_PROGRAMMATIC") == "1" {
 		programmaticMode = true
 	}
+
+	// Регистрация всех команд
+	rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand(cloneCmd)
+	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(deriveCmd)
+	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(getCmd)
+	rootCmd.AddCommand(importCmd)
+	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(renameCmd)
+	rootCmd.AddCommand(tokenCmd)
+	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(vaultsCmd)
+
+	// Регистрация подкоманд vaults
+	vaultsCmd.AddCommand(vaultsListCmd)
+	vaultsCmd.AddCommand(vaultsAddCmd)
+	vaultsCmd.AddCommand(vaultsUseCmd)
+	vaultsCmd.AddCommand(vaultsRemoveCmd)
 }

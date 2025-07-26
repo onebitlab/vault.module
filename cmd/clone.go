@@ -113,7 +113,9 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(cloneCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
 	cloneCmd.Flags().StringSliceVar(&clonePrefixes, "prefix", []string{}, "Prefixes of wallets to include in the cloned vault (can be specified multiple times).")
 	cloneCmd.Flags().BoolVar(&cloneYesFlag, "yes", false, "Overwrite without confirmation prompt")
 }

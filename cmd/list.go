@@ -99,6 +99,5 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(listCmd)
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output the list in JSON format.")
 }

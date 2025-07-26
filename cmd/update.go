@@ -113,6 +113,8 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(updateCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
 	updateCmd.Flags().IntVar(&updateIndex, "index", -1, "Index of the address to update (if not specified, updates wallet notes).")
 }

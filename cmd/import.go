@@ -94,7 +94,9 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(importCmd)
+	// Регистрация перенесена в root.go
+
+	// Настройка флагов
 	importCmd.Flags().StringVar(&importFormat, "format", constants.FormatJSON, "File format (json or key-value).")
 	importCmd.Flags().StringVar(&importConflict, "on-conflict", constants.ConflictPolicySkip, "Behavior on conflict (skip, overwrite, fail).")
 	importCmd.Flags().BoolVar(&importYesFlag, "yes", false, "Import and overwrite without confirmation prompt")

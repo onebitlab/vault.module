@@ -124,5 +124,5 @@ Examples:
 }
 
 func init() {
-	rootCmd.AddCommand(addCmd)
+	// Регистрация перенесена в root.go
 }
