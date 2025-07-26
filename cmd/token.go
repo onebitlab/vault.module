@@ -4,6 +4,7 @@ package cmd
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 
 	"vault.module/internal/colors"
@@ -18,7 +19,7 @@ var tokenCmd = &cobra.Command{
 	Short: "Manages the secret token for programmatic mode.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -32,7 +33,7 @@ var tokenGenerateCmd = &cobra.Command{
 	Short: "Generates and saves a new token.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -41,8 +42,8 @@ var tokenGenerateCmd = &cobra.Command{
 		// Generate 32 random bytes
 		bytes := make([]byte, 32)
 		if _, err := rand.Read(bytes); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to generate token: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to generate token: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -50,8 +51,8 @@ var tokenGenerateCmd = &cobra.Command{
 
 		viper.Set("authtoken", token)
 		if err := config.SaveConfig(); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save configuration: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -71,7 +72,7 @@ var tokenShowCmd = &cobra.Command{
 	Short: "Shows the current token.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))

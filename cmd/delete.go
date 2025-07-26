@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -26,7 +27,7 @@ var deleteCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -41,14 +42,14 @@ var deleteCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 
 		if _, exists := v[prefix]; !exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
 				colors.Error,
 			))
@@ -73,8 +74,8 @@ var deleteCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
 			audit.Logger.Error("Failed to save vault after deletion", "error", err.Error(), "prefix", prefix)
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

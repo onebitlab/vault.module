@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -28,7 +29,7 @@ var importCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -42,16 +43,16 @@ var importCmd = &cobra.Command{
 
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to read file '%s': %w", filePath, err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to read file '%s': %s", filePath, err.Error()),
 				colors.Error,
 			))
 		}
@@ -63,8 +64,8 @@ var importCmd = &cobra.Command{
 		}
 
 		if err := vault.SaveVault(activeVault, updatedVault); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

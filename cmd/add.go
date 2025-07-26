@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -26,27 +27,27 @@ var addCmd = &cobra.Command{
 		))
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
 		}
 		prefix := args[0]
 		if err := actions.ValidatePrefix(prefix); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("invalid prefix: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("invalid prefix: %s", err.Error()),
 				colors.Error,
 			))
 		}
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 		if _, exists := v[prefix]; exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' already exists", prefix),
 				colors.Error,
 			))
@@ -55,8 +56,8 @@ var addCmd = &cobra.Command{
 		// The prompt is now generic and doesn't mention specific chains.
 		choice, err := askForInput("Choose source: 1. Mnemonic (HD-wallet), 2. Private Key (single address)")
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to read input: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to read input: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -65,35 +66,33 @@ var addCmd = &cobra.Command{
 		var finalAddress string
 		switch choice {
 		case "1":
-			mnemonic, err := askForSecretInput("Enter your mnemonic phrase")
-			if err != nil {
-				return err
+			mnemonic, mnemonicErr := askForSecretInput("Enter your mnemonic phrase")
+			if mnemonicErr != nil {
+				return mnemonicErr
 			}
-			// Pass the vault type to the action.
 			newWallet, finalAddress, err = actions.CreateWalletFromMnemonic(mnemonic, activeVault.Type)
 		case "2":
-			pkStr, err := askForSecretInput("Enter your private key")
-			if err != nil {
-				return err
+			pkStr, pkErr := askForSecretInput("Enter your private key")
+			if pkErr != nil {
+				return pkErr
 			}
-			// Pass the vault type to the action.
 			newWallet, finalAddress, err = actions.CreateWalletFromPrivateKey(pkStr, activeVault.Type)
 		default:
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"invalid choice",
 				colors.Error,
 			))
 		}
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to create wallet: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to create wallet: %s", err.Error()),
 				colors.Error,
 			))
 		}
 		v[prefix] = newWallet
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

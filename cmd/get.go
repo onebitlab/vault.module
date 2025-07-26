@@ -3,12 +3,14 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"vault.module/internal/audit"
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -36,12 +38,18 @@ var getCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
+				colors.Error,
+			))
 		}
 
 		wallet, exists := v[prefix]
 		if !exists {
-			return fmt.Errorf("wallet with prefix '%s' not found in active vault '%s'", prefix, config.Cfg.ActiveVault)
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("wallet with prefix '%s' not found in active vault '%s'", prefix, config.Cfg.ActiveVault),
+				colors.Error,
+			))
 		}
 
 		// --- Logic for the --json flag ---
@@ -55,7 +63,10 @@ var getCmd = &cobra.Command{
 			}
 			jsonData, err := json.MarshalIndent(dataToMarshal, "", "  ")
 			if err != nil {
-				return fmt.Errorf("failed to generate JSON: %w", err)
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("failed to generate JSON: %s", err.Error()),
+					colors.Error,
+				))
 			}
 			fmt.Println(string(jsonData))
 			return nil
@@ -67,7 +78,10 @@ var getCmd = &cobra.Command{
 		if field == "mnemonic" {
 			audit.Logger.Warn("Secret data accessed", slog.String("command", "get"), slog.String("vault", config.Cfg.ActiveVault), slog.String("prefix", prefix), slog.String("field", "mnemonic"))
 			if wallet.Mnemonic == nil || wallet.Mnemonic.String() == "" {
-				return fmt.Errorf("wallet '%s' does not have a mnemonic phrase", prefix)
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("wallet '%s' does not have a mnemonic phrase", prefix),
+					colors.Error,
+				))
 			}
 			result = wallet.Mnemonic.String()
 			isSecret = true
@@ -81,7 +95,10 @@ var getCmd = &cobra.Command{
 			}
 
 			if addressData == nil {
-				return fmt.Errorf("address with index %d not found in wallet '%s'", getIndex, prefix)
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("address with index %d not found in wallet '%s'", getIndex, prefix),
+					colors.Error,
+				))
 			}
 
 			switch field {
@@ -91,12 +108,18 @@ var getCmd = &cobra.Command{
 			case "privatekey":
 				audit.Logger.Warn("Secret data accessed", slog.String("command", "get"), slog.String("vault", config.Cfg.ActiveVault), slog.String("prefix", prefix), slog.Int("index", getIndex), slog.String("field", "privateKey"))
 				if addressData.PrivateKey == nil {
-					return fmt.Errorf("address with index %d does not have a private key", getIndex)
+					return errors.New(colors.SafeColor(
+						fmt.Sprintf("address with index %d does not have a private key", getIndex),
+						colors.Error,
+					))
 				}
 				result = addressData.PrivateKey.String()
 				isSecret = true
 			default:
-				return fmt.Errorf("unknown field '%s'", args[1])
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("unknown field '%s'", args[1]),
+					colors.Error,
+				))
 			}
 		}
 
@@ -106,9 +129,15 @@ var getCmd = &cobra.Command{
 		} else {
 			if isSecret {
 				if err := clipboard.WriteAll(result); err != nil {
-					return fmt.Errorf("failed to copy to clipboard: %w", err)
+					return errors.New(colors.SafeColor(
+						fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
+						colors.Error,
+					))
 				}
-				fmt.Println("✅ Secret copied to clipboard. It will be cleared in 30 seconds.")
+				fmt.Println(colors.SafeColor(
+					"Secret copied to clipboard. It will be cleared in 30 seconds.",
+					colors.Success,
+				))
 				go func() {
 					time.Sleep(30 * time.Second)
 					currentClipboard, _ := clipboard.ReadAll()

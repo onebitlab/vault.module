@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -41,8 +42,8 @@ var initCmd = &cobra.Command{
 
 		emptyVault := make(vault.Vault)
 		if err := vault.SaveVault(activeVault, emptyVault); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to create vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to create vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

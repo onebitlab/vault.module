@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"vault.module/internal/actions"
@@ -28,7 +29,7 @@ var deriveCmd = &cobra.Command{
 		))
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -37,15 +38,15 @@ var deriveCmd = &cobra.Command{
 
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 
 		wallet, exists := v[prefix]
 		if !exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
 				colors.Error,
 			))
@@ -54,8 +55,8 @@ var deriveCmd = &cobra.Command{
 		// Pass the vault type to the action to use the correct key manager.
 		updatedWallet, newAddr, err := actions.DeriveNextAddress(wallet, activeVault.Type)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("derivation error: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("derivation error: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -63,8 +64,8 @@ var deriveCmd = &cobra.Command{
 		v[prefix] = updatedWallet
 
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

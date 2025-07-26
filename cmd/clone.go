@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"vault.module/internal/actions"
@@ -25,7 +26,7 @@ var cloneCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -33,7 +34,7 @@ var cloneCmd = &cobra.Command{
 		outputFile := args[0]
 
 		if len(clonePrefixes) == 0 {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"at least one prefix must be specified using the --prefix flag",
 				colors.Error,
 			))
@@ -47,16 +48,16 @@ var cloneCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load active vault '%s': %w", config.Cfg.ActiveVault, err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load active vault '%s': %s", config.Cfg.ActiveVault, err.Error()),
 				colors.Error,
 			))
 		}
 
 		clonedVault, err := actions.CloneVault(v, clonePrefixes)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("cloning error: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("cloning error: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -71,8 +72,8 @@ var cloneCmd = &cobra.Command{
 
 		// FIX: Pass the new details struct and the cloned vault data
 		if err := vault.SaveVault(clonedVaultDetails, clonedVault); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save new vault to '%s': %w", outputFile, err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save new vault to '%s': %s", outputFile, err.Error()),
 				colors.Error,
 			))
 		}

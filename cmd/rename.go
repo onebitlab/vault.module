@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"vault.module/internal/actions"
@@ -23,7 +24,7 @@ var renameCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -37,8 +38,8 @@ var renameCmd = &cobra.Command{
 		))
 
 		if err := actions.ValidatePrefix(newPrefix); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("invalid new prefix: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("invalid new prefix: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -46,22 +47,22 @@ var renameCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 
 		wallet, exists := v[oldPrefix]
 		if !exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' not found", oldPrefix),
 				colors.Error,
 			))
 		}
 
 		if _, exists := v[newPrefix]; exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("a wallet with prefix '%s' already exists", newPrefix),
 				colors.Error,
 			))
@@ -72,8 +73,8 @@ var renameCmd = &cobra.Command{
 
 		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

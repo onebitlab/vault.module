@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -73,20 +74,20 @@ var vaultsAddCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if _, exists := config.Cfg.Vaults[name]; exists {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("a vault with the name '%s' already exists", name),
 				colors.Error,
 			))
 		}
 
 		if encryptionMethod != constants.EncryptionYubiKey && encryptionMethod != constants.EncryptionPassphrase {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("invalid encryption method '%s', must be 'yubikey' or 'passphrase'", encryptionMethod),
 				colors.Error,
 			))
 		}
 		if encryptionMethod == constants.EncryptionYubiKey && recipientsFile == "" {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"--recipientsfile is required for yubikey encryption",
 				colors.Error,
 			))
@@ -94,8 +95,8 @@ var vaultsAddCmd = &cobra.Command{
 
 		absKeyFile, err := filepath.Abs(keyFile)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("invalid key file path: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("invalid key file path: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -104,8 +105,8 @@ var vaultsAddCmd = &cobra.Command{
 		if recipientsFile != "" {
 			absRecipientsFile, err = filepath.Abs(recipientsFile)
 			if err != nil {
-				return fmt.Errorf(colors.SafeColor(
-					fmt.Sprintf("invalid recipients file path: %w", err),
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("invalid recipients file path: %s", err.Error()),
 					colors.Error,
 				))
 			}
@@ -128,8 +129,8 @@ var vaultsAddCmd = &cobra.Command{
 		}
 
 		if err := config.SaveConfig(); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save configuration: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %s", err.Error()),
 				colors.Error,
 			))
 		}

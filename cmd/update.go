@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"vault.module/internal/colors"
@@ -24,7 +25,7 @@ var updateCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				"this command is not available in programmatic mode",
 				colors.Error,
 			))
@@ -39,19 +40,20 @@ var updateCmd = &cobra.Command{
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %s", err.Error()),
 				colors.Error,
 			))
 		}
 
-		wallet, exists := v[prefix]
-		if !exists {
-			return fmt.Errorf(colors.SafeColor(
+		if _, exists := v[prefix]; !exists {
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
 				colors.Error,
 			))
 		}
+
+		wallet := v[prefix]
 
 		if updateIndex > -1 {
 			var addressToUpdate *vault.Address
@@ -62,7 +64,7 @@ var updateCmd = &cobra.Command{
 				}
 			}
 			if addressToUpdate == nil {
-				return fmt.Errorf(colors.SafeColor(
+				return errors.New(colors.SafeColor(
 					fmt.Sprintf("address with index %d not found in wallet '%s'", updateIndex, prefix),
 					colors.Error,
 				))
@@ -71,8 +73,8 @@ var updateCmd = &cobra.Command{
 		} else {
 			newNotes, err := askForInput(fmt.Sprintf("Enter new notes for wallet '%s'", prefix))
 			if err != nil {
-				return fmt.Errorf(colors.SafeColor(
-					fmt.Sprintf("failed to read input: %w", err),
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("failed to read input: %s", err.Error()),
 					colors.Error,
 				))
 			}
@@ -82,8 +84,8 @@ var updateCmd = &cobra.Command{
 		v[prefix] = wallet
 		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %s", err.Error()),
 				colors.Error,
 			))
 		}

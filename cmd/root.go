@@ -15,11 +15,11 @@ import (
 var programmaticMode bool
 
 var rootCmd = &cobra.Command{
-	Use:                    "vault.module",
-	Short:                  "A secure CLI manager for crypto keys with YubiKey support.",
-	DisableAutoGenTag:      true,
-	DisableSuggestions:     false,
-	DisableFlagsInUseLine:  false,
+	Use:                   "vault.module",
+	Short:                 "A secure CLI manager for crypto keys with YubiKey support.",
+	DisableAutoGenTag:     true,
+	DisableSuggestions:    false,
+	DisableFlagsInUseLine: false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Show help if no subcommand is provided
 		cmd.Help()
@@ -27,10 +27,10 @@ var rootCmd = &cobra.Command{
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := audit.InitLogger(); err != nil {
-			return fmt.Errorf("failed to initialize audit logger: %w", err)
+			return fmt.Errorf("failed to initialize audit logger: %s", err.Error())
 		}
 		if err := config.LoadConfig(); err != nil {
-			return fmt.Errorf("failed to load configuration: %w", err)
+			return fmt.Errorf("failed to load configuration: %s", err.Error())
 		}
 		if cmd.Use != "vault.module" {
 			audit.Logger.Info("Command executed", slog.String("command", cmd.Use))

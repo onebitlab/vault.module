@@ -26,7 +26,7 @@ var listCmd = &cobra.Command{
 
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return fmt.Errorf("failed to load vault: %s", err.Error())
 		}
 
 		if len(v) == 0 {
@@ -64,7 +64,7 @@ var listCmd = &cobra.Command{
 			}
 			jsonData, err := json.MarshalIndent(outputVault, "", "  ")
 			if err != nil {
-				return fmt.Errorf("failed to generate JSON: %w", err)
+				return fmt.Errorf("failed to generate JSON: %s", err.Error())
 			}
 			fmt.Println(string(jsonData))
 		} else {

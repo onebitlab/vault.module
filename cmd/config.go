@@ -2,6 +2,7 @@
 package cmd // <-- THIS MUST BE 'package cmd'
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,8 +28,8 @@ var configSetCmd = &cobra.Command{
 
 		viper.Set(key, value)
 		if err := config.SaveConfig(); err != nil {
-			return fmt.Errorf(colors.SafeColor(
-				fmt.Sprintf("failed to save configuration: %w", err),
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %s", err.Error()),
 				colors.Error,
 			))
 		}
@@ -48,7 +49,7 @@ var configGetCmd = &cobra.Command{
 		key := strings.ToLower(args[0])
 
 		if !viper.IsSet(key) {
-			return fmt.Errorf(colors.SafeColor(
+			return errors.New(colors.SafeColor(
 				fmt.Sprintf("key '%s' not found in configuration", args[0]),
 				colors.Error,
 			))
