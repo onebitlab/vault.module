@@ -11,12 +11,19 @@ import (
 	"vault.module/internal/config"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var tokenCmd = &cobra.Command{
 	Use:   "token",
 	Short: "Manages the secret token for programmatic mode.",
+	Long: `Manages the secret token for programmatic mode.
+
+This command generates and displays a secret token that can be used
+to enable programmatic mode for automated operations.
+
+Examples:
+  vault.module token
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if programmaticMode {
 			return errors.New(colors.SafeColor(
@@ -49,7 +56,7 @@ var tokenGenerateCmd = &cobra.Command{
 		}
 		token := hex.EncodeToString(bytes)
 
-		viper.Set("authtoken", token)
+		config.Cfg.AuthToken = token
 		if err := config.SaveConfig(); err != nil {
 			return errors.New(colors.SafeColor(
 				fmt.Sprintf("failed to save configuration: %s", err.Error()),

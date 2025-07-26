@@ -16,9 +16,23 @@ var updateIndex int
 
 var updateCmd = &cobra.Command{
 	Use:   "update <PREFIX>",
-	Short: "Updates metadata (notes or label) in the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Short: "Updates notes in the active vault.",
+	Long: `Updates notes in the active vault.
+
+This command allows you to update notes for an existing wallet.
+You will be prompted to enter new values interactively.
+
+Examples:
+  vault.module update A1
+  vault.module update mywallet
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err

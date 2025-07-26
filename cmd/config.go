@@ -16,6 +16,15 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manages the application settings.",
+	Long: `Manages the application settings.
+
+This command allows you to view and modify configuration settings.
+Use subcommands to get or set specific configuration values.
+
+Examples:
+  vault.module config get yubikeyslot
+  vault.module config set yubikeyslot 1
+`,
 }
 
 var configSetCmd = &cobra.Command{

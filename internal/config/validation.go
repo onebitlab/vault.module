@@ -9,6 +9,23 @@ import (
 	"vault.module/internal/constants"
 )
 
+// NormalizeVaultType converts vault type to lowercase for case-insensitive comparison
+func NormalizeVaultType(vaultType string) string {
+	return strings.ToLower(strings.TrimSpace(vaultType))
+}
+
+// ValidateVaultType checks if the vault type is supported
+func ValidateVaultType(vaultType string) error {
+	normalized := NormalizeVaultType(vaultType)
+	switch normalized {
+	case constants.VaultTypeEVM, constants.VaultTypeCosmos:
+		return nil
+	default:
+		return fmt.Errorf("unsupported vault type: %s (supported: %s, %s)",
+			vaultType, constants.VaultTypeEVM, constants.VaultTypeCosmos)
+	}
+}
+
 // ValidateConfig проверяет корректность конфигурации
 func ValidateConfig(cfg *Config) error {
 	// Проверяем активный vault

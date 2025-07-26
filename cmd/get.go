@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
+	"vault.module/internal/security"
 	"vault.module/internal/vault"
 
-	"github.com/atotto/clipboard"
 	"github.com/spf13/cobra"
 )
 
@@ -25,8 +24,27 @@ var getCopy bool
 var getCmd = &cobra.Command{
 	Use:   "get <PREFIX> <FIELD>",
 	Short: "Gets data from the active vault.",
-	Args:  cobra.ExactArgs(2),
+	Long: `Gets data from the active vault.
+
+Available fields (FIELD):
+  address      - public address (default --index 0)
+  privatekey   - private key (default --index 0)
+  mnemonic     - mnemonic phrase (if present)
+  notes        - notes (if present)
+
+Examples:
+  vault.module get A1 address
+  vault.module get A1 privatekey --index 0
+  vault.module get A1 mnemonic
+  vault.module get A1 --json
+`,
+	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err
@@ -128,7 +146,7 @@ var getCmd = &cobra.Command{
 			fmt.Print(result)
 		} else {
 			if isSecret {
-				if err := clipboard.WriteAll(result); err != nil {
+				if err := security.CopyToClipboard(result); err != nil {
 					return errors.New(colors.SafeColor(
 						fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
 						colors.Error,
@@ -138,13 +156,6 @@ var getCmd = &cobra.Command{
 					"Secret copied to clipboard. It will be cleared in 30 seconds.",
 					colors.Success,
 				))
-				go func() {
-					time.Sleep(30 * time.Second)
-					currentClipboard, _ := clipboard.ReadAll()
-					if currentClipboard == result {
-						clipboard.WriteAll("")
-					}
-				}()
 			} else {
 				fmt.Println(result)
 			}

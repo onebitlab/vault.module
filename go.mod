@@ -3,7 +3,6 @@ module vault.module
 go 1.24.4
 
 require (
-	github.com/atotto/clipboard v0.1.4
 	github.com/cosmos/cosmos-sdk v0.53.3
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/ethereum/go-ethereum v1.16.1

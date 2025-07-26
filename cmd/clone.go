@@ -2,8 +2,11 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"vault.module/internal/actions"
 	"vault.module/internal/colors"
@@ -14,11 +17,21 @@ import (
 )
 
 var clonePrefixes []string
+var cloneYesFlag bool
 
 var cloneCmd = &cobra.Command{
-	Use:   "clone <OUTPUT_FILE_PATH>",
+	Use:   "clone <PREFIXES...>",
 	Short: "Creates a new, isolated vault from the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Creates a new, isolated vault from the active vault.
+
+This command creates a new vault containing only the specified wallets.
+The new vault will be encrypted with the same method as the source vault.
+
+Examples:
+  vault.module clone A1 A2
+  vault.module clone wallet1 wallet2 --prefix newvault
+`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
@@ -38,6 +51,19 @@ var cloneCmd = &cobra.Command{
 				"at least one prefix must be specified using the --prefix flag",
 				colors.Error,
 			))
+		}
+
+		if outputFile != "" {
+			if _, err := os.Stat(outputFile); err == nil && !cloneYesFlag {
+				fmt.Printf("File '%s' already exists. Overwrite? [y/N]: ", outputFile)
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "y" && answer != "yes" {
+					fmt.Println("Cancelled.")
+					return nil
+				}
+			}
 		}
 
 		fmt.Println(colors.SafeColor(
@@ -89,4 +115,5 @@ var cloneCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(cloneCmd)
 	cloneCmd.Flags().StringSliceVar(&clonePrefixes, "prefix", []string{}, "Prefixes of wallets to include in the cloned vault (can be specified multiple times).")
+	cloneCmd.Flags().BoolVar(&cloneYesFlag, "yes", false, "Overwrite without confirmation prompt")
 }

@@ -1,25 +1,25 @@
 // File: internal/constants/constants.go
 package constants
 
-// Vault Types
+// Vault types
 const (
-	VaultTypeEVM    = "EVM"
+	VaultTypeEVM    = "evm"
 	VaultTypeCosmos = "cosmos"
 )
 
-// Encryption Methods
+// Encryption methods
 const (
 	EncryptionYubiKey    = "yubikey"
 	EncryptionPassphrase = "passphrase"
 )
 
-// Import/Export Formats
+// Import formats
 const (
 	FormatJSON     = "json"
-	FormatKeyValue = "key-value"
+	FormatKeyValue = "keyvalue"
 )
 
-// Import Conflict Policies
+// Conflict resolution policies
 const (
 	ConflictPolicySkip      = "skip"
 	ConflictPolicyOverwrite = "overwrite"

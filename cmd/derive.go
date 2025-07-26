@@ -16,8 +16,22 @@ import (
 var deriveCmd = &cobra.Command{
 	Use:   "derive <PREFIX>",
 	Short: "Derives and adds the next address for a wallet in the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Derives and adds the next address for a wallet in the active vault.
+
+This command is only available for HD wallets (created from mnemonic).
+It will derive the next address using the wallet's derivation path.
+
+Examples:
+  vault.module derive A1
+  vault.module derive myhdwallet
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err

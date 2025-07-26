@@ -2,10 +2,12 @@
 package cmd
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"vault.module/internal/actions"
 	"vault.module/internal/audit"
@@ -19,10 +21,24 @@ import (
 var exportYes bool
 
 var exportCmd = &cobra.Command{
-	Use:   "export <FILE_PATH>",
+	Use:   "export <OUTPUT_FILE>",
 	Short: "Exports all accounts from the active vault to an unencrypted JSON file.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Exports all accounts from the active vault to an unencrypted JSON file.
+
+This command exports all wallets and their data to a JSON file.
+The exported file will be unencrypted, so handle it with care.
+
+Examples:
+  vault.module export wallets.json
+  vault.module export backup.json --yes
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err
@@ -34,7 +50,18 @@ var exportCmd = &cobra.Command{
 				colors.Error,
 			))
 		}
-		filePath := args[0]
+		outputFile := args[0]
+
+		if _, err := os.Stat(outputFile); err == nil && !exportYes {
+			fmt.Printf("File '%s' already exists. Overwrite? [y/N]: ", outputFile)
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Println("Cancelled.")
+				return nil
+			}
+		}
 
 		fmt.Println(colors.SafeColor(
 			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
@@ -71,7 +98,7 @@ var exportCmd = &cobra.Command{
 		audit.Logger.Error("Executing plaintext export of an entire vault",
 			slog.String("command", "export"),
 			slog.String("vault", config.Cfg.ActiveVault),
-			slog.String("destination_file", filePath),
+			slog.String("destination_file", outputFile),
 		)
 
 		jsonData, err := actions.ExportVault(v)
@@ -82,16 +109,16 @@ var exportCmd = &cobra.Command{
 			))
 		}
 
-		if err := os.WriteFile(filePath, jsonData, 0644); err != nil {
+		if err := os.WriteFile(outputFile, jsonData, 0644); err != nil {
 			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to write to file '%s': %s", filePath, err.Error()),
+				fmt.Sprintf("failed to write to file '%s': %s", outputFile, err.Error()),
 				colors.Error,
 			))
 		}
 
-		audit.Logger.Info("Plaintext export completed successfully", "destination_file", filePath)
+		audit.Logger.Info("Plaintext export completed successfully", "destination_file", outputFile)
 		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("All wallets (%d) from vault '%s' successfully exported to '%s'.", len(v), config.Cfg.ActiveVault, filePath),
+			fmt.Sprintf("All wallets (%d) from vault '%s' successfully exported to '%s'.", len(v), config.Cfg.ActiveVault, outputFile),
 			colors.Success,
 		))
 		return nil

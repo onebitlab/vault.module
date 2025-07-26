@@ -2,6 +2,7 @@ package security
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"runtime"
 )
 
@@ -35,6 +36,31 @@ func (s *SecureString) String() string {
 		return ""
 	}
 	return string(s.data)
+}
+
+// MarshalJSON сериализует SecureString в JSON
+func (s *SecureString) MarshalJSON() ([]byte, error) {
+	if s.data == nil {
+		return json.Marshal("")
+	}
+	return json.Marshal(string(s.data))
+}
+
+// UnmarshalJSON десериализует SecureString из JSON
+func (s *SecureString) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+
+	// Создаем новый SecureString с полученной строкой
+	newSS := NewSecureString(str)
+	s.data = newSS.data
+	s.pad = newSS.pad
+
+	// Устанавливаем finalizer для нового объекта
+	runtime.SetFinalizer(s, (*SecureString).Clear)
+	return nil
 }
 
 // Clear безопасно очищает память

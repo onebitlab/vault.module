@@ -18,7 +18,22 @@ var listJson bool
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "Shows a list of all saved wallets in the active vault.",
+	Long: `Shows a list of all saved wallets in the active vault.
+
+Displays:
+  - Wallet names (prefixes)
+  - Number of addresses per wallet
+  - Public addresses for each wallet
+
+Examples:
+  vault.module list
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err
@@ -72,11 +87,11 @@ var listCmd = &cobra.Command{
 				fmt.Sprintf("Saved wallets in '%s' (Type: %s):", config.Cfg.ActiveVault, activeVault.Type),
 				colors.Bold,
 			))
-			for _, prefix := range filteredPrefixes {
-				fmt.Printf("- %s %s\n",
-					colors.SafeColor(prefix, colors.Cyan),
-					colors.SafeColor(fmt.Sprintf("(Addresses: %d)", len(v[prefix].Addresses)), colors.Dim),
-				)
+			for name, wallet := range v {
+				fmt.Printf("- %s (Addresses: %d)\n", name, len(wallet.Addresses))
+				for _, addr := range wallet.Addresses {
+					fmt.Printf("    %s\n", colors.SafeColor(addr.Address, colors.Cyan))
+				}
 			}
 		}
 		return nil

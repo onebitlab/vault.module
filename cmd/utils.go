@@ -3,12 +3,56 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"golang.org/x/term"
+	"vault.module/internal/colors"
+	"vault.module/internal/config"
 )
+
+// checkVaultStatus проверяет состояние vault и возвращает понятные сообщения об ошибках
+func checkVaultStatus() error {
+	// Проверяем, есть ли активный vault
+	if config.Cfg.ActiveVault == "" {
+		return errors.New(colors.SafeColor(
+			"No active vault configured. Please create a vault first with 'vaults add' and activate it with 'vaults use'.",
+			colors.Error,
+		))
+	}
+
+	// Проверяем, существует ли vault в конфигурации
+	activeVault, exists := config.Cfg.Vaults[config.Cfg.ActiveVault]
+	if !exists {
+		return errors.New(colors.SafeColor(
+			fmt.Sprintf("Active vault '%s' not found in configuration. Please check your vaults with 'vaults list' and set active vault with 'vaults use'.",
+				config.Cfg.ActiveVault),
+			colors.Error,
+		))
+	}
+
+	// Проверяем, есть ли тип vault
+	if activeVault.Type == "" {
+		return errors.New(colors.SafeColor(
+			fmt.Sprintf("Active vault '%s' has no type defined. Please recreate the vault with 'vaults add'.",
+				config.Cfg.ActiveVault),
+			colors.Error,
+		))
+	}
+
+	// Проверяем, существует ли файл vault
+	if _, err := os.Stat(activeVault.KeyFile); os.IsNotExist(err) {
+		return errors.New(colors.SafeColor(
+			fmt.Sprintf("Vault file '%s' does not exist. Please create the vault with 'vaults add'.",
+				activeVault.KeyFile),
+			colors.Error,
+		))
+	}
+
+	return nil
+}
 
 // askForConfirmation prompts the user for a yes/no confirmation.
 func askForConfirmation(prompt string) bool {

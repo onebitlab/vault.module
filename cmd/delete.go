@@ -19,8 +19,22 @@ var deleteYes bool
 var deleteCmd = &cobra.Command{
 	Use:   "delete <PREFIX>",
 	Short: "Deletes a wallet from the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Deletes a wallet from the active vault.
+
+This command will permanently remove the specified wallet and all its data.
+You will be prompted for confirmation unless --yes flag is used.
+
+Examples:
+  vault.module delete A1
+  vault.module delete mywallet --yes
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err

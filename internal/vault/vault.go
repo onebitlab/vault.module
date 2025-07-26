@@ -24,11 +24,10 @@ type Address struct {
 
 // Wallet defines the structure for a wallet, which can be HD or a single key.
 type Wallet struct {
-	Mnemonic       *security.SecureString `json:"-"`
+	Mnemonic       *security.SecureString `json:"mnemonic,omitempty"`
 	DerivationPath string                 `json:"derivationPath,omitempty"`
 	Addresses      []Address              `json:"addresses"`
 	Notes          string                 `json:"notes"`
-	Tags           []string               `json:"tags"`
 }
 
 // Sanitize creates a "clean" copy of the wallet for safe display.
@@ -119,7 +118,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		ageCmd.Stdin = bytes.NewReader(identity)
 
 	case constants.EncryptionPassphrase:
-		ageCmd = exec.Command("age", "--decrypt", "--passphrase", details.KeyFile)
+		ageCmd = exec.Command("age", "--decrypt", details.KeyFile)
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
 			return nil, fmt.Errorf("could not open TTY for passphrase entry: %s", err.Error())
@@ -150,12 +149,26 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	return v, nil
 }
 
-// SaveVault encrypts and saves the vault to a file.
+// SaveVault encrypts and saves the vault to a file atomically.
 func SaveVault(details config.VaultDetails, v Vault) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize data: %s", err.Error())
 	}
+
+	// Создаем временный файл в той же директории что и целевой файл
+	dir := details.KeyFile
+	if lastSlash := strings.LastIndex(dir, "/"); lastSlash != -1 {
+		dir = dir[:lastSlash]
+	} else {
+		dir = "."
+	}
+
+	tmpfile, err := os.CreateTemp(dir, "vault-tmp-*")
+	if err != nil {
+		return fmt.Errorf("could not create temp file: %s", err.Error())
+	}
+	defer os.Remove(tmpfile.Name()) // clean up
 
 	var cmd *exec.Cmd
 
@@ -167,17 +180,12 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		if _, err := os.Stat(details.RecipientsFile); os.IsNotExist(err) {
 			return fmt.Errorf("recipients file '%s' not found", details.RecipientsFile)
 		}
-		args := []string{"-a", "-r", details.RecipientsFile, "-o", details.KeyFile}
+		args := []string{"-a", "-R", details.RecipientsFile, "-o", tmpfile.Name()}
 		cmd = exec.Command("age", args...)
 		cmd.Stdin = bytes.NewReader(data)
 
 	case constants.EncryptionPassphrase:
-		tmpfile, err := os.CreateTemp("", "vault-*.json")
-		if err != nil {
-			return fmt.Errorf("could not create temp file: %s", err.Error())
-		}
-		defer os.Remove(tmpfile.Name()) // clean up
-
+		// Сначала записываем данные во временный файл
 		if _, err := tmpfile.Write(data); err != nil {
 			return fmt.Errorf("could not write to temp file: %s", err.Error())
 		}
@@ -185,7 +193,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 			return fmt.Errorf("could not close temp file: %s", err.Error())
 		}
 
-		cmd = exec.Command("age", "-p", "-o", details.KeyFile, tmpfile.Name())
+		cmd = exec.Command("age", "-p", "-o", tmpfile.Name()+"_encrypted", tmpfile.Name())
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
 			return fmt.Errorf("could not open TTY for passphrase entry: %s", err.Error())
@@ -205,6 +213,18 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 
 	if runErr := cmd.Run(); runErr != nil {
 		return fmt.Errorf("failed to encrypt vault: %v\n%s", runErr, stderr.String())
+	}
+
+	// Атомарно перемещаем зашифрованный файл на место
+	var encryptedFile string
+	if details.Encryption == constants.EncryptionPassphrase {
+		encryptedFile = tmpfile.Name() + "_encrypted"
+	} else {
+		encryptedFile = tmpfile.Name()
+	}
+
+	if err := os.Rename(encryptedFile, details.KeyFile); err != nil {
+		return fmt.Errorf("failed to atomically move encrypted file: %s", err.Error())
 	}
 
 	return nil

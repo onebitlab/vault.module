@@ -17,12 +17,30 @@ import (
 
 var importFormat string
 var importConflict string
+var importYesFlag bool
 
 var importCmd = &cobra.Command{
-	Use:   "import <FILE_PATH>",
+	Use:   "import <INPUT_FILE>",
 	Short: "Bulk imports accounts from a file into the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Bulk imports accounts from a file into the active vault.
+
+Supported formats:
+  - JSON: Standard wallet export format
+  - Key-Value: Simple key=value format
+
+The command will prompt for conflict resolution if wallets with same names exist.
+
+Examples:
+  vault.module import wallets.json
+  vault.module import backup.txt --format keyvalue
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err
@@ -79,4 +97,5 @@ func init() {
 	rootCmd.AddCommand(importCmd)
 	importCmd.Flags().StringVar(&importFormat, "format", constants.FormatJSON, "File format (json or key-value).")
 	importCmd.Flags().StringVar(&importConflict, "on-conflict", constants.ConflictPolicySkip, "Behavior on conflict (skip, overwrite, fail).")
+	importCmd.Flags().BoolVar(&importYesFlag, "yes", false, "Import and overwrite without confirmation prompt")
 }

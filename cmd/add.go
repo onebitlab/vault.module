@@ -15,8 +15,26 @@ import (
 var addCmd = &cobra.Command{
 	Use:   "add <PREFIX>",
 	Short: "Adds a new wallet to the active vault.",
-	Args:  cobra.ExactArgs(1),
+	Long: `Adds a new wallet to the active vault.
+
+Process:
+  1. Enter a prefix (name) for the new wallet
+  2. Choose the source:
+     1 - Mnemonic (HD-wallet)
+     2 - Private Key (single address)
+  3. Enter the mnemonic or private key
+
+Examples:
+  vault.module add A1
+  vault.module add mywallet
+`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Проверяем состояние vault перед выполнением команды
+		if err := checkVaultStatus(); err != nil {
+			return err
+		}
+
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
 			return err
