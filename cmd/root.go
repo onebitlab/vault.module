@@ -7,7 +7,6 @@ import (
 
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
-	"vault.module/internal/tui"
 
 	"github.com/spf13/cobra"
 )
@@ -18,14 +17,8 @@ var rootCmd = &cobra.Command{
 	Use:   "vault.module",
 	Short: "A secure CLI manager for crypto keys with YubiKey support.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// If no subcommand is provided and we are in interactive mode, start the TUI.
-		// The TUI is now responsible for handling vault loading and selection.
-		if !programmaticMode {
-			audit.Logger.Info("Starting interactive TUI mode")
-			tui.StartTUI()
-		} else {
-			cmd.Help()
-		}
+		// Show help if no subcommand is provided
+		cmd.Help()
 		return nil
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
