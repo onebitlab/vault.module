@@ -4,6 +4,7 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
+	"os"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
@@ -14,8 +15,11 @@ import (
 var programmaticMode bool
 
 var rootCmd = &cobra.Command{
-	Use:   "vault.module",
-	Short: "A secure CLI manager for crypto keys with YubiKey support.",
+	Use:                    "vault.module",
+	Short:                  "A secure CLI manager for crypto keys with YubiKey support.",
+	DisableAutoGenTag:      true,
+	DisableSuggestions:     false,
+	DisableFlagsInUseLine:  false,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Show help if no subcommand is provided
 		cmd.Help()
@@ -37,7 +41,14 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
+	// Отключаем автоматическую генерацию completion
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	return rootCmd.Execute()
 }
 
-func init() {}
+func init() {
+	// Check if programmatic mode is enabled via environment variable
+	if os.Getenv("VAULT_MODULE_PROGRAMMATIC") == "1" {
+		programmaticMode = true
+	}
+}
