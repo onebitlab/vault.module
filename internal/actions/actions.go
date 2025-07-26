@@ -107,7 +107,7 @@ func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy, vaultT
 	}
 
 	if err != nil {
-		return v, "", fmt.Errorf("error parsing import file: %w", err)
+		return v, "", fmt.Errorf("error parsing import file: %s", err.Error())
 	}
 
 	addedCount := 0

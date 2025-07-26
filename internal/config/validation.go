@@ -20,7 +20,7 @@ func ValidateConfig(cfg *Config) error {
 	// Проверяем каждый vault
 	for name, details := range cfg.Vaults {
 		if err := ValidateVaultDetails(name, details); err != nil {
-			return fmt.Errorf("vault '%s': %w", name, err)
+			return fmt.Errorf("vault '%s': %s", name, err.Error())
 		}
 	}
 	return nil

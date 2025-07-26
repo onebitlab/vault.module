@@ -4,7 +4,7 @@ package constants
 // Vault Types
 const (
 	VaultTypeEVM    = "EVM"
-	VaultTypeCosmos = "COSMOS"
+	VaultTypeCosmos = "cosmos"
 )
 
 // Encryption Methods

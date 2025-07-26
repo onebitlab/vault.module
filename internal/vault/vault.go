@@ -101,7 +101,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
-			return nil, fmt.Errorf("could not open TTY for PIN entry: %w", err)
+			return nil, fmt.Errorf("could not open TTY for PIN entry: %s", err.Error())
 		}
 		defer tty.Close()
 		pluginCmd.Stdin = tty
@@ -122,7 +122,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		ageCmd = exec.Command("age", "--decrypt", "--passphrase", details.KeyFile)
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
-			return nil, fmt.Errorf("could not open TTY for passphrase entry: %w", err)
+			return nil, fmt.Errorf("could not open TTY for passphrase entry: %s", err.Error())
 		}
 		defer tty.Close()
 		ageCmd.Stdin = tty
@@ -145,7 +145,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 
 	var v Vault
 	if err := json.Unmarshal(out.Bytes(), &v); err != nil {
-		return nil, fmt.Errorf("failed to parse vault data (file may be corrupt): %w", err)
+		return nil, fmt.Errorf("failed to parse vault data (file may be corrupt): %s", err.Error())
 	}
 	return v, nil
 }
@@ -154,7 +154,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 func SaveVault(details config.VaultDetails, v Vault) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to serialize data: %w", err)
+		return fmt.Errorf("failed to serialize data: %s", err.Error())
 	}
 
 	var cmd *exec.Cmd
@@ -174,25 +174,25 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	case constants.EncryptionPassphrase:
 		tmpfile, err := os.CreateTemp("", "vault-*.json")
 		if err != nil {
-			return fmt.Errorf("could not create temp file: %w", err)
+			return fmt.Errorf("could not create temp file: %s", err.Error())
 		}
 		defer os.Remove(tmpfile.Name()) // clean up
 
 		if _, err := tmpfile.Write(data); err != nil {
-			return fmt.Errorf("could not write to temp file: %w", err)
+			return fmt.Errorf("could not write to temp file: %s", err.Error())
 		}
 		if err := tmpfile.Close(); err != nil {
-			return fmt.Errorf("could not close temp file: %w", err)
+			return fmt.Errorf("could not close temp file: %s", err.Error())
 		}
 
 		cmd = exec.Command("age", "-p", "-o", details.KeyFile, tmpfile.Name())
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
-			return fmt.Errorf("could not open TTY for passphrase entry: %w", err)
+			return fmt.Errorf("could not open TTY for passphrase entry: %s", err.Error())
 		}
 		defer tty.Close()
 		cmd.Stdin = tty
-		cmd.Stderr = tty
+		cmd.Stderr = os.Stderr // Show prompt to user
 
 	default:
 		return fmt.Errorf("unknown encryption method: %s", details.Encryption)

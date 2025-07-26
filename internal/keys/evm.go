@@ -31,18 +31,18 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 
 	hdWallet, err := createEVMWalletFromMnemonic(mnemonic)
 	if err != nil {
-		return vault.Wallet{}, fmt.Errorf("failed to create wallet: %w", err)
+		return vault.Wallet{}, fmt.Errorf("failed to create wallet: %s", err.Error())
 	}
 
 	path := fmt.Sprintf("%s/0", EVMDerivationPath)
 	privateKey, err := deriveEVMPrivateKey(hdWallet, path)
 	if err != nil {
-		return vault.Wallet{}, fmt.Errorf("failed to derive private key: %w", err)
+		return vault.Wallet{}, fmt.Errorf("failed to derive private key: %s", err.Error())
 	}
 
 	address, err := privateKeyToEVMAddress(privateKey)
 	if err != nil {
-		return vault.Wallet{}, fmt.Errorf("failed to generate address: %w", err)
+		return vault.Wallet{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
 	return vault.Wallet{
@@ -67,12 +67,12 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 
 	privateKey, err := privateKeyFromEVMString(pkStr)
 	if err != nil {
-		return vault.Wallet{}, fmt.Errorf("failed to process private key: %w", err)
+		return vault.Wallet{}, fmt.Errorf("failed to process private key: %s", err.Error())
 	}
 
 	address, err := privateKeyToEVMAddress(privateKey)
 	if err != nil {
-		return vault.Wallet{}, fmt.Errorf("failed to generate address: %w", err)
+		return vault.Wallet{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
 	return vault.Wallet{
@@ -97,18 +97,18 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 
 	hdWallet, err := createEVMWalletFromMnemonic(wallet.Mnemonic.String())
 	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %w", err)
+		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %s", err.Error())
 	}
 
 	path := fmt.Sprintf("%s/%d", wallet.DerivationPath, nextIndex)
 	privateKey, err := deriveEVMPrivateKey(hdWallet, path)
 	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to derive private key: %w", err)
+		return wallet, vault.Address{}, fmt.Errorf("failed to derive private key: %s", err.Error())
 	}
 
 	address, err := privateKeyToEVMAddress(privateKey)
 	if err != nil {
-		return wallet, vault.Address{}, fmt.Errorf("failed to generate address: %w", err)
+		return wallet, vault.Address{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
 	newAddress := vault.Address{
