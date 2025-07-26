@@ -4,6 +4,7 @@ package cmd
 import (
 	"fmt"
 
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -23,21 +24,33 @@ var updateCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf("this command is not available in programmatic mode")
+			return fmt.Errorf(colors.SafeColor(
+				"this command is not available in programmatic mode",
+				colors.Error,
+			))
 		}
 		prefix := args[0]
 
-		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+			colors.Info,
+		))
 
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %w", err),
+				colors.Error,
+			))
 		}
 
 		wallet, exists := v[prefix]
 		if !exists {
-			return fmt.Errorf("wallet with prefix '%s' not found", prefix)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
+				colors.Error,
+			))
 		}
 
 		if updateIndex > -1 {
@@ -49,13 +62,19 @@ var updateCmd = &cobra.Command{
 				}
 			}
 			if addressToUpdate == nil {
-				return fmt.Errorf("address with index %d not found in wallet '%s'", updateIndex, prefix)
+				return fmt.Errorf(colors.SafeColor(
+					fmt.Sprintf("address with index %d not found in wallet '%s'", updateIndex, prefix),
+					colors.Error,
+				))
 			}
 			// Ранее здесь обновлялся label, теперь ничего не делаем
 		} else {
 			newNotes, err := askForInput(fmt.Sprintf("Enter new notes for wallet '%s'", prefix))
 			if err != nil {
-				return fmt.Errorf("failed to read input: %w", err)
+				return fmt.Errorf(colors.SafeColor(
+					fmt.Sprintf("failed to read input: %w", err),
+					colors.Error,
+				))
 			}
 			wallet.Notes = newNotes
 		}
@@ -63,15 +82,21 @@ var updateCmd = &cobra.Command{
 		v[prefix] = wallet
 		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf("failed to save vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %w", err),
+				colors.Error,
+			))
 		}
 
-		fmt.Printf("✅ Data for wallet '%s' successfully updated in vault '%s'.\n", prefix, config.Cfg.ActiveVault)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Data for wallet '%s' successfully updated in vault '%s'.", prefix, config.Cfg.ActiveVault),
+			colors.Success,
+		))
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(updateCmd)
-	updateCmd.Flags().IntVar(&updateIndex, "index", -1, "Index of the address to update label for (if not set, updates wallet notes).")
+	updateCmd.Flags().IntVar(&updateIndex, "index", -1, "Index of the address to update (if not specified, updates wallet notes).")
 }

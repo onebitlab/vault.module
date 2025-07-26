@@ -3,7 +3,9 @@ package cmd
 
 import (
 	"fmt"
+
 	"vault.module/internal/actions"
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -23,25 +25,40 @@ var cloneCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf("this command is not available in programmatic mode")
+			return fmt.Errorf(colors.SafeColor(
+				"this command is not available in programmatic mode",
+				colors.Error,
+			))
 		}
 		outputFile := args[0]
 
 		if len(clonePrefixes) == 0 {
-			return fmt.Errorf("at least one prefix must be specified using the --prefix flag")
+			return fmt.Errorf(colors.SafeColor(
+				"at least one prefix must be specified using the --prefix flag",
+				colors.Error,
+			))
 		}
 
-		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+			colors.Info,
+		))
 
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load active vault '%s': %w", config.Cfg.ActiveVault, err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to load active vault '%s': %w", config.Cfg.ActiveVault, err),
+				colors.Error,
+			))
 		}
 
 		clonedVault, err := actions.CloneVault(v, clonePrefixes)
 		if err != nil {
-			return fmt.Errorf("cloning error: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("cloning error: %w", err),
+				colors.Error,
+			))
 		}
 
 		// Create a temporary VaultDetails for the new file, inheriting the active vault's properties.
@@ -54,15 +71,21 @@ var cloneCmd = &cobra.Command{
 
 		// FIX: Pass the new details struct and the cloned vault data
 		if err := vault.SaveVault(clonedVaultDetails, clonedVault); err != nil {
-			return fmt.Errorf("failed to save new vault to '%s': %w", outputFile, err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save new vault to '%s': %w", outputFile, err),
+				colors.Error,
+			))
 		}
 
-		fmt.Printf("✅ Isolated vault successfully created at '%s' containing %d wallets from '%s'.\n", outputFile, len(clonedVault), config.Cfg.ActiveVault)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Isolated vault successfully created at '%s' containing %d wallets from '%s'.", outputFile, len(clonedVault), config.Cfg.ActiveVault),
+			colors.Success,
+		))
 		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(cloneCmd)
-	cloneCmd.Flags().StringSliceVar(&clonePrefixes, "prefix", []string{}, "Prefix of a wallet to add to the new vault (can be specified multiple times).")
+	cloneCmd.Flags().StringSliceVar(&clonePrefixes, "prefix", []string{}, "Prefixes of wallets to include in the cloned vault (can be specified multiple times).")
 }

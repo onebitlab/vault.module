@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -29,7 +30,10 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(v) == 0 {
-			fmt.Printf("ℹ️  Vault '%s' is empty.\n", config.Cfg.ActiveVault)
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Vault '%s' is empty.", config.Cfg.ActiveVault),
+				colors.Info,
+			))
 			return nil
 		}
 
@@ -39,7 +43,10 @@ var listCmd = &cobra.Command{
 		}
 
 		if len(filteredPrefixes) == 0 {
-			fmt.Println("ℹ️  No wallets found matching your filters.")
+			fmt.Println(colors.SafeColor(
+				"No wallets found matching your filters.",
+				colors.Warning,
+			))
 			return nil
 		}
 
@@ -61,9 +68,15 @@ var listCmd = &cobra.Command{
 			}
 			fmt.Println(string(jsonData))
 		} else {
-			fmt.Printf("Saved wallets in '%s' (Type: %s):\n", config.Cfg.ActiveVault, activeVault.Type)
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Saved wallets in '%s' (Type: %s):", config.Cfg.ActiveVault, activeVault.Type),
+				colors.Bold,
+			))
 			for _, prefix := range filteredPrefixes {
-				fmt.Printf("- %s (Addresses: %d)\n", prefix, len(v[prefix].Addresses))
+				fmt.Printf("- %s %s\n",
+					colors.SafeColor(prefix, colors.Cyan),
+					colors.SafeColor(fmt.Sprintf("(Addresses: %d)", len(v[prefix].Addresses)), colors.Dim),
+				)
 			}
 		}
 		return nil

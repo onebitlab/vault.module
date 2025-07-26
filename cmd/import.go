@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"vault.module/internal/actions"
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
 	"vault.module/internal/vault"
@@ -27,20 +28,32 @@ var importCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf("this command is not available in programmatic mode")
+			return fmt.Errorf(colors.SafeColor(
+				"this command is not available in programmatic mode",
+				colors.Error,
+			))
 		}
 		filePath := args[0]
 
-		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+			colors.Info,
+		))
 
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %w", err),
+				colors.Error,
+			))
 		}
 
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			return fmt.Errorf("failed to read file '%s': %w", filePath, err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to read file '%s': %w", filePath, err),
+				colors.Error,
+			))
 		}
 
 		// Pass the vault type to the action to use the correct key manager.
@@ -50,10 +63,13 @@ var importCmd = &cobra.Command{
 		}
 
 		if err := vault.SaveVault(activeVault, updatedVault); err != nil {
-			return fmt.Errorf("failed to save vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %w", err),
+				colors.Error,
+			))
 		}
 
-		fmt.Println("✅", report)
+		fmt.Println(colors.SafeColor(report, colors.Success))
 		return nil
 	},
 }

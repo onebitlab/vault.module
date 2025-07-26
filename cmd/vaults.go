@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
 
@@ -27,7 +28,10 @@ var vaultsListCmd = &cobra.Command{
 	Short: "Lists all configured vaults.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(config.Cfg.Vaults) == 0 {
-			fmt.Println("No vaults configured. Add one with 'vaults add <name>'.")
+			fmt.Println(colors.SafeColor(
+				"No vaults configured. Add one with 'vaults add <name>'.",
+				colors.Warning,
+			))
 			return nil
 		}
 
@@ -37,17 +41,24 @@ var vaultsListCmd = &cobra.Command{
 		}
 		sort.Strings(names)
 
-		fmt.Println("Configured Vaults:")
+		fmt.Println(colors.SafeColor("Configured Vaults:", colors.Bold))
 		for _, name := range names {
 			details := config.Cfg.Vaults[name]
 			if name == config.Cfg.ActiveVault {
-				fmt.Printf(" * %s (active, type: %s, encryption: %s)\n", name, details.Type, details.Encryption)
+				fmt.Printf(" %s %s %s\n",
+					colors.SafeColor("*", colors.Success),
+					colors.SafeColor(name, colors.Cyan),
+					colors.SafeColor(fmt.Sprintf("(active, type: %s, encryption: %s)", details.Type, details.Encryption), colors.Dim),
+				)
 			} else {
-				fmt.Printf("   %s (type: %s, encryption: %s)\n", name, details.Type, details.Encryption)
+				fmt.Printf("   %s %s\n",
+					colors.SafeColor(name, colors.Bold),
+					colors.SafeColor(fmt.Sprintf("(type: %s, encryption: %s)", details.Type, details.Encryption), colors.Dim),
+				)
 			}
-			fmt.Printf("     - Key File: %s\n", details.KeyFile)
+			fmt.Printf("     - Key File: %s\n", colors.SafeColor(details.KeyFile, colors.Yellow))
 			if details.Encryption == constants.EncryptionYubiKey {
-				fmt.Printf("     - Recipients File: %s\n", details.RecipientsFile)
+				fmt.Printf("     - Recipients File: %s\n", colors.SafeColor(details.RecipientsFile, colors.Yellow))
 			}
 		}
 		return nil
@@ -62,26 +73,41 @@ var vaultsAddCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if _, exists := config.Cfg.Vaults[name]; exists {
-			return fmt.Errorf("a vault with the name '%s' already exists", name)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("a vault with the name '%s' already exists", name),
+				colors.Error,
+			))
 		}
 
 		if encryptionMethod != constants.EncryptionYubiKey && encryptionMethod != constants.EncryptionPassphrase {
-			return fmt.Errorf("invalid encryption method '%s', must be 'yubikey' or 'passphrase'", encryptionMethod)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("invalid encryption method '%s', must be 'yubikey' or 'passphrase'", encryptionMethod),
+				colors.Error,
+			))
 		}
 		if encryptionMethod == constants.EncryptionYubiKey && recipientsFile == "" {
-			return fmt.Errorf("--recipientsfile is required for yubikey encryption")
+			return fmt.Errorf(colors.SafeColor(
+				"--recipientsfile is required for yubikey encryption",
+				colors.Error,
+			))
 		}
 
 		absKeyFile, err := filepath.Abs(keyFile)
 		if err != nil {
-			return fmt.Errorf("invalid key file path: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("invalid key file path: %w", err),
+				colors.Error,
+			))
 		}
 
 		var absRecipientsFile string
 		if recipientsFile != "" {
 			absRecipientsFile, err = filepath.Abs(recipientsFile)
 			if err != nil {
-				return fmt.Errorf("invalid recipients file path: %w", err)
+				return fmt.Errorf(colors.SafeColor(
+					fmt.Sprintf("invalid recipients file path: %w", err),
+					colors.Error,
+				))
 			}
 		}
 
@@ -99,12 +125,26 @@ var vaultsAddCmd = &cobra.Command{
 
 		if config.Cfg.ActiveVault == "" {
 			config.Cfg.ActiveVault = name
-			fmt.Printf("Vault '%s' (type: %s, encryption: %s) added and set as active.\n", name, vaultType, encryptionMethod)
-		} else {
-			fmt.Printf("Vault '%s' (type: %s, encryption: %s) added.\n", name, vaultType, encryptionMethod)
 		}
 
-		return config.SaveConfig()
+		if err := config.SaveConfig(); err != nil {
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %w", err),
+				colors.Error,
+			))
+		}
+
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("✅ Vault '%s' added successfully", name),
+			colors.Success,
+		))
+		if config.Cfg.ActiveVault == name {
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("✅ Vault '%s' is now active", name),
+				colors.Success,
+			))
+		}
+		return nil
 	},
 }
 

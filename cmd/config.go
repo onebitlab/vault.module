@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 
 	"github.com/spf13/cobra"
@@ -26,9 +27,15 @@ var configSetCmd = &cobra.Command{
 
 		viper.Set(key, value)
 		if err := config.SaveConfig(); err != nil {
-			return fmt.Errorf("failed to save configuration: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %w", err),
+				colors.Error,
+			))
 		}
-		fmt.Printf("✅ Configuration updated: %s = %s\n", args[0], value)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Configuration updated: %s = %s", args[0], value),
+			colors.Success,
+		))
 		return nil
 	},
 }
@@ -41,10 +48,13 @@ var configGetCmd = &cobra.Command{
 		key := strings.ToLower(args[0])
 
 		if !viper.IsSet(key) {
-			return fmt.Errorf("key '%s' not found in configuration", args[0])
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("key '%s' not found in configuration", args[0]),
+				colors.Error,
+			))
 		}
 		value := viper.Get(key)
-		fmt.Printf("%s: %v\n", args[0], value)
+		fmt.Printf("%s: %v\n", colors.SafeColor(args[0], colors.Cyan), value)
 		return nil
 	},
 }

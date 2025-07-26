@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"vault.module/internal/actions"
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -22,30 +23,48 @@ var renameCmd = &cobra.Command{
 		}
 
 		if programmaticMode {
-			return fmt.Errorf("this command is not available in programmatic mode")
+			return fmt.Errorf(colors.SafeColor(
+				"this command is not available in programmatic mode",
+				colors.Error,
+			))
 		}
 		oldPrefix := args[0]
 		newPrefix := args[1]
 
-		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+			colors.Info,
+		))
 
 		if err := actions.ValidatePrefix(newPrefix); err != nil {
-			return fmt.Errorf("invalid new prefix: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("invalid new prefix: %w", err),
+				colors.Error,
+			))
 		}
 
 		// FIX: Pass the whole activeVault struct
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %w", err),
+				colors.Error,
+			))
 		}
 
 		wallet, exists := v[oldPrefix]
 		if !exists {
-			return fmt.Errorf("wallet with prefix '%s' not found", oldPrefix)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("wallet with prefix '%s' not found", oldPrefix),
+				colors.Error,
+			))
 		}
 
 		if _, exists := v[newPrefix]; exists {
-			return fmt.Errorf("a wallet with prefix '%s' already exists", newPrefix)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("a wallet with prefix '%s' already exists", newPrefix),
+				colors.Error,
+			))
 		}
 
 		v[newPrefix] = wallet
@@ -53,10 +72,16 @@ var renameCmd = &cobra.Command{
 
 		// FIX: Pass the whole activeVault struct
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf("failed to save vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %w", err),
+				colors.Error,
+			))
 		}
 
-		fmt.Printf("✅ Wallet '%s' successfully renamed to '%s' in vault '%s'.\n", oldPrefix, newPrefix, config.Cfg.ActiveVault)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Wallet '%s' successfully renamed to '%s' in vault '%s'.", oldPrefix, newPrefix, config.Cfg.ActiveVault),
+			colors.Success,
+		))
 		return nil
 	},
 }

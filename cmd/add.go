@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"vault.module/internal/actions"
+	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 )
@@ -19,27 +20,45 @@ var addCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("ℹ️  Active Vault: %s (Type: %s)\n", config.Cfg.ActiveVault, activeVault.Type)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+			colors.Info,
+		))
 
 		if programmaticMode {
-			return fmt.Errorf("this command is not available in programmatic mode")
+			return fmt.Errorf(colors.SafeColor(
+				"this command is not available in programmatic mode",
+				colors.Error,
+			))
 		}
 		prefix := args[0]
 		if err := actions.ValidatePrefix(prefix); err != nil {
-			return fmt.Errorf("invalid prefix: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("invalid prefix: %w", err),
+				colors.Error,
+			))
 		}
 		v, err := vault.LoadVault(activeVault)
 		if err != nil {
-			return fmt.Errorf("failed to load vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to load vault: %w", err),
+				colors.Error,
+			))
 		}
 		if _, exists := v[prefix]; exists {
-			return fmt.Errorf("wallet with prefix '%s' already exists", prefix)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("wallet with prefix '%s' already exists", prefix),
+				colors.Error,
+			))
 		}
 
 		// The prompt is now generic and doesn't mention specific chains.
 		choice, err := askForInput("Choose source: 1. Mnemonic (HD-wallet), 2. Private Key (single address)")
 		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to read input: %w", err),
+				colors.Error,
+			))
 		}
 
 		var newWallet vault.Wallet
@@ -60,17 +79,29 @@ var addCmd = &cobra.Command{
 			// Pass the vault type to the action.
 			newWallet, finalAddress, err = actions.CreateWalletFromPrivateKey(pkStr, activeVault.Type)
 		default:
-			return fmt.Errorf("invalid choice")
+			return fmt.Errorf(colors.SafeColor(
+				"invalid choice",
+				colors.Error,
+			))
 		}
 		if err != nil {
-			return fmt.Errorf("failed to create wallet: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to create wallet: %w", err),
+				colors.Error,
+			))
 		}
 		v[prefix] = newWallet
 		if err := vault.SaveVault(activeVault, v); err != nil {
-			return fmt.Errorf("failed to save vault: %w", err)
+			return fmt.Errorf(colors.SafeColor(
+				fmt.Sprintf("failed to save vault: %w", err),
+				colors.Error,
+			))
 		}
-		fmt.Printf("✅ Wallet '%s' added successfully to vault '%s'.\n", prefix, config.Cfg.ActiveVault)
-		fmt.Printf("   Address: %s\n", finalAddress)
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("Wallet '%s' added successfully to vault '%s'.", prefix, config.Cfg.ActiveVault),
+			colors.Success,
+		))
+		fmt.Printf("   Address: %s\n", colors.SafeColor(finalAddress, colors.Cyan))
 		return nil
 	},
 }
