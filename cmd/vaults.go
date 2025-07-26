@@ -3,29 +3,55 @@ package cmd
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"vault.module/internal/audit"
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
 	"vault.module/internal/vault"
 )
 
-var keyFile, recipientsFile, vaultType, encryptionMethod string
+var keyFile, recipientsFile, vaultType string
 var vaultsRemoveYesFlag bool
+
+// validateAndCleanPath проверяет и очищает путь к файлу
+func validateAndCleanPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	// Очищаем путь от лишних символов
+	cleanPath := filepath.Clean(path)
+
+	// Проверяем, что путь не содержит подозрительные символы
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains invalid characters: %s", path)
+	}
+
+	// Проверяем, что путь не является абсолютным путем к системным директориям
+	if filepath.IsAbs(cleanPath) {
+		// Проверяем, что путь не указывает на системные директории
+		base := filepath.Base(cleanPath)
+		if base == "" || base == "." || base == ".." {
+			return "", fmt.Errorf("invalid path: %s", path)
+		}
+	}
+
+	return cleanPath, nil
+}
 
 // vaultsCmd represents the base command for vault management.
 var vaultsCmd = &cobra.Command{
 	Use:   "vaults",
-	Short: "Manage vaults configuration.",
+	Short: "Manage vaults",
 	Long: `Manage multiple vault configurations.
 
 This command allows you to manage multiple vault configurations.
@@ -33,7 +59,7 @@ Use subcommands to add, list, remove, or switch between vaults.
 
 Examples:
   vault.module vaults list
-  vault.module vaults add myvault --type evm --encryption yubikey
+  vault.module vaults add myvault --type evm
   vault.module vaults use myvault
 `,
 	Aliases: []string{"vault"},
@@ -94,8 +120,8 @@ This command:
   3. Automatically creates the encrypted vault file
 
 Examples:
-  vault.module vaults add myvault --type evm --encryption yubikey --keyfile myvault.key --recipientsfile recipients.txt
-  vault.module vaults add myvault --type cosmos --encryption passphrase --keyfile myvault.key
+  vault.module vaults add myvault --type evm --keyfile myvault.key --recipientsfile recipients.txt
+  vault.module vaults add myvault --type cosmos --keyfile myvault.key --recipientsfile recipients.txt
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -107,13 +133,7 @@ Examples:
 			))
 		}
 
-		if encryptionMethod != constants.EncryptionYubiKey && encryptionMethod != constants.EncryptionPassphrase {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("invalid encryption method '%s', must be 'yubikey' or 'passphrase'", encryptionMethod),
-				colors.Error,
-			))
-		}
-		if encryptionMethod == constants.EncryptionYubiKey && recipientsFile == "" {
+		if recipientsFile == "" {
 			return errors.New(colors.SafeColor(
 				"--recipientsfile is required for yubikey encryption",
 				colors.Error,
@@ -123,7 +143,16 @@ Examples:
 		// Normalize vault type to lowercase
 		normalizedVaultType := strings.ToLower(strings.TrimSpace(vaultType))
 
-		absKeyFile, err := filepath.Abs(keyFile)
+		// Валидируем и очищаем пути к файлам
+		cleanKeyFile, err := validateAndCleanPath(keyFile)
+		if err != nil {
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("invalid key file path: %s", err.Error()),
+				colors.Error,
+			))
+		}
+
+		absKeyFile, err := filepath.Abs(cleanKeyFile)
 		if err != nil {
 			return errors.New(colors.SafeColor(
 				fmt.Sprintf("invalid key file path: %s", err.Error()),
@@ -133,7 +162,15 @@ Examples:
 
 		var absRecipientsFile string
 		if recipientsFile != "" {
-			absRecipientsFile, err = filepath.Abs(recipientsFile)
+			cleanRecipientsFile, err := validateAndCleanPath(recipientsFile)
+			if err != nil {
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("invalid recipients file path: %s", err.Error()),
+					colors.Error,
+				))
+			}
+
+			absRecipientsFile, err = filepath.Abs(cleanRecipientsFile)
 			if err != nil {
 				return errors.New(colors.SafeColor(
 					fmt.Sprintf("invalid recipients file path: %s", err.Error()),
@@ -146,7 +183,7 @@ Examples:
 			KeyFile:        absKeyFile,
 			RecipientsFile: absRecipientsFile,
 			Type:           normalizedVaultType,
-			Encryption:     encryptionMethod,
+			Encryption:     constants.EncryptionYubiKey,
 		}
 
 		if config.Cfg.Vaults == nil {
@@ -159,11 +196,20 @@ Examples:
 		}
 
 		if err := config.SaveConfig(); err != nil {
+			audit.Logger.Error("Failed to save configuration",
+				slog.String("vault_name", name),
+				slog.String("error", err.Error()))
 			return errors.New(colors.SafeColor(
 				fmt.Sprintf("failed to save configuration: %s", err.Error()),
 				colors.Error,
 			))
 		}
+
+		audit.Logger.Info("Vault configuration added",
+			slog.String("vault_name", name),
+			slog.String("vault_type", normalizedVaultType),
+			slog.String("key_file", absKeyFile),
+			slog.Bool("is_active", config.Cfg.ActiveVault == name))
 
 		fmt.Println(colors.SafeColor(
 			fmt.Sprintf("Vault '%s' added successfully", name),
@@ -182,84 +228,22 @@ Examples:
 			colors.Info,
 		))
 
-		if newVault.Encryption == constants.EncryptionPassphrase {
-			fmt.Println(colors.SafeColor(
-				"Creating vault file with passphrase encryption...",
-				colors.Info,
-			))
-
-			// Запрашиваем passphrase у пользователя
-			passphrase, err := askForSecretInput("Enter passphrase for vault encryption")
-			if err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("failed to read passphrase: %s", err.Error()),
-					colors.Error,
-				))
-			}
-
-			// Создаем пустой vault
-			emptyVault := make(vault.Vault)
-			data, err := json.MarshalIndent(emptyVault, "", "  ")
-			if err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("failed to serialize vault data: %s", err.Error()),
-					colors.Error,
-				))
-			}
-
-			// Создаем временный файл
-			tmpfile, err := os.CreateTemp("", "vault-*.json")
-			if err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("could not create temp file: %s", err.Error()),
-					colors.Error,
-				))
-			}
-			defer os.Remove(tmpfile.Name())
-
-			if _, err := tmpfile.Write(data); err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("could not write to temp file: %s", err.Error()),
-					colors.Error,
-				))
-			}
-			if err := tmpfile.Close(); err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("could not close temp file: %s", err.Error()),
-					colors.Error,
-				))
-			}
-
-			// Запускаем age с переданным passphrase
-			cmd := exec.Command("age", "-p", "-o", absKeyFile, tmpfile.Name())
-			cmd.Stdin = strings.NewReader(passphrase + "\n")
-			cmd.Stderr = os.Stderr
-
-			if err := cmd.Run(); err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("failed to encrypt vault: %s", err.Error()),
-					colors.Error,
-				))
-			}
-
-			fmt.Println(colors.SafeColor(
-				"✅ Vault file created successfully with passphrase encryption",
-				colors.Success,
-			))
-		} else {
-			// Для YubiKey используем стандартный SaveVault
-			emptyVault := make(vault.Vault)
-			if err := vault.SaveVault(newVault, emptyVault); err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("failed to create vault file: %s", err.Error()),
-					colors.Error,
-				))
-			}
-			fmt.Println(colors.SafeColor(
-				fmt.Sprintf("✅ Vault file created successfully at '%s'", absKeyFile),
-				colors.Success,
+		// Создаем пустой vault
+		emptyVault := make(vault.Vault)
+		if err := vault.SaveVault(newVault, emptyVault); err != nil {
+			audit.Logger.Error("Failed to create vault file",
+				slog.String("vault_name", name),
+				slog.String("key_file", absKeyFile),
+				slog.String("error", err.Error()))
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to create vault file: %s", err.Error()),
+				colors.Error,
 			))
 		}
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("✅ Vault file created successfully at '%s'", absKeyFile),
+			colors.Success,
+		))
 		fmt.Println(colors.SafeColor(
 			"💡 Next step: Run 'vault.module add <wallet>' to add wallets",
 			colors.Info,
@@ -327,7 +311,7 @@ func init() {
 	vaultsAddCmd.Flags().StringVar(&keyFile, "keyfile", "", "Path to the encrypted key file for the new vault (required)")
 	vaultsAddCmd.Flags().StringVar(&recipientsFile, "recipientsfile", "", "Path to the recipients file (required for yubikey encryption)")
 	vaultsAddCmd.Flags().StringVar(&vaultType, "type", "", "Type of the vault, e.g., EVM (required)")
-	vaultsAddCmd.Flags().StringVar(&encryptionMethod, "encryption", constants.EncryptionYubiKey, "Encryption method: 'yubikey' or 'passphrase'")
+
 	_ = vaultsAddCmd.MarkFlagRequired("keyfile")
 	_ = vaultsAddCmd.MarkFlagRequired("type")
 	vaultsRemoveCmd.Flags().BoolVar(&vaultsRemoveYesFlag, "yes", false, "Remove without confirmation prompt")

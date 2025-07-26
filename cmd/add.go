@@ -84,13 +84,13 @@ Examples:
 		var finalAddress string
 		switch choice {
 		case "1":
-			mnemonic, mnemonicErr := askForSecretInput("Enter your mnemonic phrase")
+			mnemonic, mnemonicErr := askForInput("Enter your mnemonic phrase")
 			if mnemonicErr != nil {
 				return mnemonicErr
 			}
 			newWallet, finalAddress, err = actions.CreateWalletFromMnemonic(mnemonic, activeVault.Type)
 		case "2":
-			pkStr, pkErr := askForSecretInput("Enter your private key")
+			pkStr, pkErr := askForInput("Enter your private key")
 			if pkErr != nil {
 				return pkErr
 			}

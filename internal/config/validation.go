@@ -132,7 +132,6 @@ func getAllVaultTypes() []string {
 func getAllEncryptionMethods() []string {
 	return []string{
 		constants.EncryptionYubiKey,
-		constants.EncryptionPassphrase,
 	}
 }
 

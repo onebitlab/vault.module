@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	"golang.org/x/term"
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
 )
@@ -86,13 +85,4 @@ func askForInput(prompt string) (string, error) {
 	return strings.TrimSpace(input), nil
 }
 
-// askForSecretInput prompts the user for secret input (without echoing to the screen).
-func askForSecretInput(prompt string) (string, error) {
-	fmt.Printf("%s: ", prompt)
-	bytePassword, err := term.ReadPassword(int(os.Stdin.Fd()))
-	if err != nil {
-		return "", err
-	}
-	fmt.Println() // Add a newline after the input
-	return strings.TrimSpace(string(bytePassword)), nil
-}
+

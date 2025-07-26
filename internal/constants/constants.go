@@ -9,8 +9,7 @@ const (
 
 // Encryption methods
 const (
-	EncryptionYubiKey    = "yubikey"
-	EncryptionPassphrase = "passphrase"
+	EncryptionYubiKey = "yubikey"
 )
 
 // Import formats

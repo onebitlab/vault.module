@@ -40,8 +40,7 @@ func GetActiveVault() (VaultDetails, error) {
 		return VaultDetails{}, fmt.Errorf("active vault '%s' has no type defined in config.json", Cfg.ActiveVault)
 	}
 	if activeVault.Encryption == "" {
-		// Default to yubikey for backward compatibility if the field is missing.
-		activeVault.Encryption = "yubikey"
+		return VaultDetails{}, fmt.Errorf("active vault '%s' has no encryption method defined in config.json", Cfg.ActiveVault)
 	}
 	return activeVault, nil
 }
