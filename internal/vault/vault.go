@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/sys/unix"
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
@@ -97,24 +98,45 @@ func validateAndCleanPath(path string) (string, error) {
 		return "", fmt.Errorf("path cannot be empty")
 	}
 
-	// Clean the path from extra characters
-	cleanPath := filepath.Clean(path)
+	// Get absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %s", err.Error())
+	}
 
-	// Check that the path doesn't contain suspicious characters
+	// Check that the path doesn't escape working directory
+	workDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine working directory: %s", err.Error())
+	}
+
+	workDirAbs, err := filepath.Abs(workDir)
+	if err != nil {
+		return "", fmt.Errorf("cannot determine absolute working directory: %s", err.Error())
+	}
+
+	// Ensure path is within working directory
+	if !strings.HasPrefix(absPath, workDirAbs) {
+		return "", fmt.Errorf("path outside working directory: %s", path)
+	}
+
+	// Additional check for suspicious characters
+	cleanPath := filepath.Clean(path)
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains invalid characters: %s", path)
 	}
 
-	// Check that the path is not an absolute path to system directories
-	if filepath.IsAbs(cleanPath) {
-		// Check that the path doesn't point to system directories
-		base := filepath.Base(cleanPath)
-		if base == "" || base == "." || base == ".." {
-			return "", fmt.Errorf("invalid path: %s", path)
-		}
-	}
+	return absPath, nil
+}
 
-	return cleanPath, nil
+// lockFile applies an exclusive lock to the file
+func lockFile(file *os.File) error {
+	return unix.Flock(int(file.Fd()), unix.LOCK_EX)
+}
+
+// unlockFile removes the lock from the file
+func unlockFile(file *os.File) error {
+	return unix.Flock(int(file.Fd()), unix.LOCK_UN)
 }
 
 // CheckYubiKey checks for the availability of a YubiKey.
@@ -165,6 +187,23 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	audit.Logger.Info("Loading vault",
 		slog.String("key_file", cleanKeyFile),
 		slog.String("encryption", details.Encryption))
+
+	// Lock the file to prevent concurrent access during loading
+	file, err := os.OpenFile(cleanKeyFile, os.O_RDONLY, 0600)
+	if err != nil {
+		audit.Logger.Error("Failed to open vault file for locking",
+			slog.String("key_file", cleanKeyFile),
+			slog.String("error", err.Error()))
+		return nil, fmt.Errorf("failed to open vault file: %s", err.Error())
+	}
+	defer file.Close()
+
+	if err := lockFile(file); err != nil {
+		audit.Logger.Error("Failed to lock vault file",
+			slog.String("key_file", cleanKeyFile),
+			slog.String("error", err.Error()))
+		return nil, fmt.Errorf("failed to lock vault file: %s", err.Error())
+	}
 
 	var ageCmd *exec.Cmd
 
@@ -238,6 +277,22 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	return v, nil
 }
 
+// createSecureTempFile creates a temporary file with secure permissions (0600)
+func createSecureTempFile(dir string) (*os.File, error) {
+	tmpfile, err := os.CreateTemp(dir, "vault-tmp-*")
+	if err != nil {
+		return nil, err
+	}
+
+	// Immediately set secure permissions
+	if err := tmpfile.Chmod(0600); err != nil {
+		os.Remove(tmpfile.Name())
+		return nil, err
+	}
+
+	return tmpfile, nil
+}
+
 // SaveVault encrypts and saves the vault to a file atomically.
 func SaveVault(details config.VaultDetails, v Vault) error {
 	audit.Logger.Info("Saving vault",
@@ -276,7 +331,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		dir = "."
 	}
 
-	tmpfile, err := os.CreateTemp(dir, "vault-tmp-*")
+	tmpfile, err := createSecureTempFile(dir)
 	if err != nil {
 		return fmt.Errorf("could not create temp file: %s", err.Error())
 	}
@@ -327,6 +382,31 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 			slog.String("temp_file", encryptedFile),
 			slog.String("error", err.Error()))
 		return fmt.Errorf("failed to atomically move encrypted file: %s", err.Error())
+	}
+
+	// Lock the final file to prevent concurrent access
+	finalFile, err := os.OpenFile(cleanKeyFile, os.O_RDWR, 0600)
+	if err != nil {
+		audit.Logger.Error("Failed to open final file for locking",
+			slog.String("key_file", cleanKeyFile),
+			slog.String("error", err.Error()))
+		// Don't return error as file is already saved
+	} else {
+		defer finalFile.Close()
+		if err := lockFile(finalFile); err != nil {
+			audit.Logger.Error("Failed to lock final file",
+				slog.String("key_file", cleanKeyFile),
+				slog.String("error", err.Error()))
+			// Don't return error as file is already saved
+		}
+	}
+
+	// Set secure permissions for the final file
+	if err := os.Chmod(cleanKeyFile, 0600); err != nil {
+		audit.Logger.Error("Failed to set secure permissions on final file",
+			slog.String("key_file", cleanKeyFile),
+			slog.String("error", err.Error()))
+		// Don't return error as file is already saved
 	}
 
 	audit.Logger.Info("Vault saved successfully",

@@ -1,4 +1,4 @@
-// File: cmd/update.go
+// File: cmd/notes.go
 package cmd
 
 import (
@@ -12,19 +12,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var updateIndex int
-
-var updateCmd = &cobra.Command{
-	Use:   "update <PREFIX>",
-	Short: "Updates notes in the active vault.",
-	Long: `Updates notes in the active vault.
+var notesCmd = &cobra.Command{
+	Use:   "notes <PREFIX>",
+	Short: "Updates wallet notes in the active vault.",
+	Long: `Updates wallet notes in the active vault.
 
 This command allows you to update notes for an existing wallet.
+Notes are stored at the wallet level and apply to all addresses in the wallet.
 You will be prompted to enter new values interactively.
 
 Examples:
-  vault.module update A1
-  vault.module update mywallet
+  vault.module notes A1
+  vault.module notes mywallet
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,31 +68,14 @@ Examples:
 
 		wallet := v[prefix]
 
-		if updateIndex > -1 {
-			var addressToUpdate *vault.Address
-			for i := range wallet.Addresses {
-				if wallet.Addresses[i].Index == updateIndex {
-					addressToUpdate = &wallet.Addresses[i]
-					break
-				}
-			}
-			if addressToUpdate == nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("address with index %d not found in wallet '%s'", updateIndex, prefix),
-					colors.Error,
-				))
-			}
-			// Ранее здесь обновлялся label, теперь ничего не делаем
-		} else {
-			newNotes, err := askForInput(fmt.Sprintf("Enter new notes for wallet '%s'", prefix))
-			if err != nil {
-				return errors.New(colors.SafeColor(
-					fmt.Sprintf("failed to read input: %s", err.Error()),
-					colors.Error,
-				))
-			}
-			wallet.Notes = newNotes
+		newNotes, err := askForInput(fmt.Sprintf("Enter new notes for wallet '%s'", prefix))
+		if err != nil {
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to read input: %s", err.Error()),
+				colors.Error,
+			))
 		}
+		wallet.Notes = newNotes
 
 		v[prefix] = wallet
 		// FIX: Pass the whole activeVault struct
@@ -114,7 +96,4 @@ Examples:
 
 func init() {
 	// Регистрация перенесена в root.go
-
-	// Настройка флагов
-	updateCmd.Flags().IntVar(&updateIndex, "index", -1, "Index of the address to update (if not specified, updates wallet notes).")
 }

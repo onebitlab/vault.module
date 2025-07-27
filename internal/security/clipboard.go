@@ -8,32 +8,32 @@ import (
 	"time"
 )
 
-// SecureClipboard предоставляет безопасную работу с clipboard
+// SecureClipboard provides secure clipboard operations
 type SecureClipboard struct {
 	lastData   string
 	clearTimer *time.Timer
 }
 
-// NewSecureClipboard создает новый экземпляр SecureClipboard
+// NewSecureClipboard creates a new SecureClipboard instance
 func NewSecureClipboard() *SecureClipboard {
 	return &SecureClipboard{}
 }
 
-// WriteAll безопасно копирует данные в clipboard с автоматической очисткой
+// WriteAll safely copies data to clipboard with automatic cleanup
 func (sc *SecureClipboard) WriteAll(data string) error {
-	// Очищаем предыдущий таймер если он есть
+	// Clear previous timer if exists
 	if sc.clearTimer != nil {
 		sc.clearTimer.Stop()
 	}
 
-	// Копируем данные в clipboard
+	// Copy data to clipboard
 	if err := sc.copyToClipboard(data); err != nil {
 		return fmt.Errorf("failed to copy to clipboard: %s", err.Error())
 	}
 
 	sc.lastData = data
 
-	// Устанавливаем таймер на очистку через 30 секунд
+	// Set timer to clear after 30 seconds
 	sc.clearTimer = time.AfterFunc(30*time.Second, func() {
 		sc.Clear()
 	})
@@ -41,14 +41,14 @@ func (sc *SecureClipboard) WriteAll(data string) error {
 	return nil
 }
 
-// Clear очищает clipboard
+// Clear clears clipboard
 func (sc *SecureClipboard) Clear() error {
 	if sc.clearTimer != nil {
 		sc.clearTimer.Stop()
 		sc.clearTimer = nil
 	}
 
-	// Очищаем clipboard
+	// Clear clipboard
 	if err := sc.copyToClipboard(""); err != nil {
 		return fmt.Errorf("failed to clear clipboard: %s", err.Error())
 	}
@@ -57,12 +57,12 @@ func (sc *SecureClipboard) Clear() error {
 	return nil
 }
 
-// ReadAll читает данные из clipboard
+// ReadAll reads data from clipboard
 func (sc *SecureClipboard) ReadAll() (string, error) {
 	return sc.readFromClipboard()
 }
 
-// copyToClipboard копирует данные в clipboard используя системные команды
+// copyToClipboard copies data to clipboard using system commands
 func (sc *SecureClipboard) copyToClipboard(data string) error {
 	switch runtime.GOOS {
 	case "darwin":
@@ -71,7 +71,7 @@ func (sc *SecureClipboard) copyToClipboard(data string) error {
 		cmd.Stdin = strings.NewReader(data)
 		return cmd.Run()
 	case "linux":
-		// Linux (требует xclip или xsel)
+		// Linux (requires xclip or xsel)
 		if sc.hasCommand("xclip") {
 			cmd := exec.Command("xclip", "-selection", "clipboard")
 			cmd.Stdin = strings.NewReader(data)
@@ -91,7 +91,7 @@ func (sc *SecureClipboard) copyToClipboard(data string) error {
 	}
 }
 
-// readFromClipboard читает данные из clipboard
+// readFromClipboard reads data from clipboard
 func (sc *SecureClipboard) readFromClipboard() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -133,30 +133,36 @@ func (sc *SecureClipboard) readFromClipboard() (string, error) {
 	}
 }
 
-// hasCommand проверяет наличие команды в системе
+// hasCommand checks if command exists in system
 func (sc *SecureClipboard) hasCommand(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
 }
 
-// GetClipboard возвращает глобальный экземпляр SecureClipboard
+// Global clipboard instance
+var globalClipboard *SecureClipboard
+
+// GetClipboard returns global SecureClipboard instance
 func GetClipboard() *SecureClipboard {
-	return &SecureClipboard{}
+	if globalClipboard == nil {
+		globalClipboard = &SecureClipboard{}
+	}
+	return globalClipboard
 }
 
-// CopyToClipboard копирует данные в clipboard с автоматической очисткой
+// CopyToClipboard copies data to clipboard with automatic cleanup
 func CopyToClipboard(data string) error {
 	clipboard := GetClipboard()
 	return clipboard.WriteAll(data)
 }
 
-// ReadClipboard читает данные из clipboard
+// ReadClipboard reads data from clipboard
 func ReadClipboard() (string, error) {
 	clipboard := GetClipboard()
 	return clipboard.ReadAll()
 }
 
-// ClearClipboard очищает clipboard
+// ClearClipboard clears clipboard
 func ClearClipboard() error {
 	clipboard := GetClipboard()
 	return clipboard.Clear()

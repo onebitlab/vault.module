@@ -1,91 +1,109 @@
 // File: cmd/config.go
-package cmd // <-- THIS MUST BE 'package cmd'
+package cmd
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
-	"strings"
-
-	"vault.module/internal/colors"
-	"vault.module/internal/config"
+	"os"
+	"os/exec"
 
 	"github.com/spf13/cobra"
+	"vault.module/internal/colors"
 )
 
 var configCmd = &cobra.Command{
 	Use:   "config",
-	Short: "Manages the application settings.",
-	Long: `Manages the application settings.
+	Short: "Shows the contents of the configuration file.",
+	Long: `Shows the contents of the configuration file.
 
-This command allows you to view and modify configuration settings.
-Use subcommands to list or set specific configuration values.
-
-Available global configuration keys:
-  yubikeyslot    - YubiKey slot number (e.g., "1", "2", or empty for default)
-  authtoken      - Authentication token
-  active_vault   - Currently active vault name
+This command displays the raw contents of config.json file.
+If jq or python3 is available, it will use them for better formatting.
 
 Examples:
-  vault.module config list                    # Show all configuration keys and values
-  vault.module config set yubikeyslot 1      # Set specific key value
+  vault.module config
 `,
-}
-
-var configSetCmd = &cobra.Command{
-	Use:   "set <KEY> <VALUE>",
-	Short: "Sets a value for a configuration key.",
-	Args:  cobra.ExactArgs(2),
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		key := strings.ToLower(args[0])
-		value := args[1]
-
-		// Update the global config structure
-		switch key {
-		case "yubikeyslot":
-			config.Cfg.YubikeySlot = value
-		case "authtoken":
-			config.Cfg.AuthToken = value
-		case "active_vault":
-			config.Cfg.ActiveVault = value
-		default:
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("unknown configuration key: %s", args[0]),
-				colors.Error,
-			))
+		// Try to use external formatter first
+		if externalOutput := tryExternalFormatter(); externalOutput != "" {
+			fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
+			fmt.Println(externalOutput)
+			return nil
 		}
 
-		// Save the updated configuration
-		if err := config.SaveConfig(); err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to save configuration: %s", err.Error()),
-				colors.Error,
-			))
+		// Read the config.json file
+		configData, err := os.ReadFile("config.json")
+		if err != nil {
+			return fmt.Errorf("failed to read config.json: %s", err.Error())
 		}
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Configuration updated: %s = %s", args[0], value),
-			colors.Success,
-		))
+
+		// Parse JSON for pretty printing
+		var jsonData interface{}
+		if err := json.Unmarshal(configData, &jsonData); err != nil {
+			// If JSON is invalid, just print raw content
+			fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
+			fmt.Println(string(configData))
+			return nil
+		}
+
+		// Pretty print JSON
+		prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to format JSON: %s", err.Error())
+		}
+
+		fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
+		fmt.Println(string(prettyJSON))
+
 		return nil
 	},
 }
 
-var configListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "Shows all configuration keys and their values.",
-	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println(colors.SafeColor("Global Configuration:", colors.Bold))
-		fmt.Printf("  %s: %s\n", colors.SafeColor("yubikeyslot", colors.Cyan), config.Cfg.YubikeySlot)
-		fmt.Printf("  %s: %s\n", colors.SafeColor("authtoken", colors.Cyan), config.Cfg.AuthToken)
-		fmt.Printf("  %s: %s\n", colors.SafeColor("active_vault", colors.Cyan), config.Cfg.ActiveVault)
-		return nil
-	},
+// tryExternalFormatter attempts to format JSON using external tools
+func tryExternalFormatter() string {
+	// Try jq first
+	if jqOutput := tryJq(); jqOutput != "" {
+		return jqOutput
+	}
+
+	// Try Python as fallback
+	if pythonOutput := tryPython(); pythonOutput != "" {
+		return pythonOutput
+	}
+
+	return ""
 }
 
-func init() {
-	// Регистрация перенесена в root.go
+// tryJq attempts to format JSON using jq
+func tryJq() string {
+	// Check if jq is available
+	if _, err := exec.LookPath("jq"); err != nil {
+		return ""
+	}
 
-	// Настройка подкоманд
-	configCmd.AddCommand(configListCmd)
-	configCmd.AddCommand(configSetCmd)
+	// Try to format with jq
+	cmd := exec.Command("jq", ".", "config.json")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return string(output)
+}
+
+// tryPython attempts to format JSON using Python
+func tryPython() string {
+	// Check if python3 is available
+	if _, err := exec.LookPath("python3"); err != nil {
+		return ""
+	}
+
+	// Try to format with Python
+	cmd := exec.Command("python3", "-m", "json.tool", "config.json")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return string(output)
 }

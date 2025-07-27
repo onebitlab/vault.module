@@ -101,15 +101,10 @@ Examples:
 					}
 				} else {
 					// Single key wallet - private keys are not saved to JSON for security
-					sourceInfo = "Key from private key (imported)"
+					sourceInfo = "Wallet from private key (imported)"
 				}
 
 				fmt.Printf("- %s (%s)\n", colors.SafeColor(prefix, colors.White), colors.SafeColor(sourceInfo, colors.Yellow))
-
-				// Show notes if present
-				if wallet.Notes != "" {
-					fmt.Printf("  Notes: %s\n", colors.SafeColor(wallet.Notes, colors.Dim))
-				}
 
 				// Show addresses with index and private key hint
 				for _, addr := range wallet.Addresses {
@@ -120,10 +115,15 @@ Examples:
 						privateKeyStr := addr.PrivateKey.String()
 						if len(privateKeyStr) >= 6 {
 							hint := fmt.Sprintf("%s...%s", privateKeyStr[:3], privateKeyStr[len(privateKeyStr)-3:])
-							fmt.Printf(" (key: %s)", colors.SafeColor(hint, colors.Dim))
+							fmt.Printf(" (private key: %s)", colors.SafeColor(hint, colors.Dim))
 						}
 					}
 					fmt.Println()
+				}
+
+				// Show notes if present (after addresses)
+				if wallet.Notes != "" {
+					fmt.Printf("  Notes: %s\n", colors.SafeColor(wallet.Notes, colors.Dim))
 				}
 			}
 		}

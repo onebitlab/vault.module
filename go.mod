@@ -11,6 +11,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/tendermint/tendermint v0.35.9
 	github.com/tyler-smith/go-bip39 v1.1.0
+	golang.org/x/sys v0.33.0
 	golang.org/x/term v0.32.0
 
 )
@@ -67,7 +68,6 @@ require (
 	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/sync v0.15.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250528174236-200df99c418a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250528174236-200df99c418a // indirect

@@ -87,12 +87,12 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(renameCmd)
 	rootCmd.AddCommand(tokenCmd)
-	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(notesCmd)
 	rootCmd.AddCommand(vaultsCmd)
 
 	// Register vaults subcommands
 	vaultsCmd.AddCommand(vaultsListCmd)
 	vaultsCmd.AddCommand(vaultsAddCmd)
 	vaultsCmd.AddCommand(vaultsUseCmd)
-	vaultsCmd.AddCommand(vaultsRemoveCmd)
+	vaultsCmd.AddCommand(vaultsDeleteCmd)
 }

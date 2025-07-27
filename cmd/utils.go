@@ -59,7 +59,7 @@ func checkVaultStatus() error {
 func askForConfirmation(prompt string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Printf("%s [y/n]: ", prompt)
+		fmt.Printf("%s [y/N]: ", prompt)
 		response, err := reader.ReadString('\n')
 		if err != nil {
 			return false
@@ -70,7 +70,7 @@ func askForConfirmation(prompt string) bool {
 		switch response {
 		case "y", "yes":
 			return true
-		case "n", "no":
+		case "n", "no", "":
 			return false
 		}
 	}

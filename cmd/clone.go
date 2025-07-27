@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"vault.module/internal/actions"
@@ -16,22 +17,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var clonePrefixes []string
 var cloneYesFlag bool
 
 var cloneCmd = &cobra.Command{
-	Use:   "clone <PREFIXES...>",
+	Use:   "clone <VAULT_NAME> <PREFIXES...>",
 	Short: "Creates a new, isolated vault from the active vault.",
 	Long: `Creates a new, isolated vault from the active vault.
 
 This command creates a new vault containing only the specified wallets.
 The new vault will be encrypted with the same method as the source vault.
+The vault file will be saved in the same directory as the source vault.
+The new vault will be automatically added to config.json.
 
 Examples:
-  vault.module clone A1 A2
-  vault.module clone wallet1 wallet2 --prefix newvault
+  vault.module clone newvault A1 A2
+  vault.module clone backup wallet1 wallet2
 `,
-	Args: cobra.MinimumNArgs(1),
+	Args: cobra.MinimumNArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		activeVault, err := config.GetActiveVault()
 		if err != nil {
@@ -44,25 +46,36 @@ Examples:
 				colors.Error,
 			))
 		}
-		outputFile := args[0]
+		clonedVaultName := args[0]
+		clonePrefixes := args[1:]
 
 		if len(clonePrefixes) == 0 {
 			return errors.New(colors.SafeColor(
-				"at least one prefix must be specified using the --prefix flag",
+				"at least one prefix must be specified",
 				colors.Error,
 			))
 		}
 
-		if outputFile != "" {
-			if _, err := os.Stat(outputFile); err == nil && !cloneYesFlag {
-				fmt.Printf("File '%s' already exists. Overwrite? [y/N]: ", outputFile)
-				reader := bufio.NewReader(os.Stdin)
-				answer, _ := reader.ReadString('\n')
-				answer = strings.TrimSpace(strings.ToLower(answer))
-				if answer != "y" && answer != "yes" {
-					fmt.Println("Cancelled.")
-					return nil
-				}
+		// Check if vault name already exists
+		if _, exists := config.Cfg.Vaults[clonedVaultName]; exists {
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("a vault with the name '%s' already exists", clonedVaultName),
+				colors.Error,
+			))
+		}
+
+		// Generate output file path in the same directory as source vault
+		sourceDir := filepath.Dir(activeVault.KeyFile)
+		outputFile := filepath.Join(sourceDir, clonedVaultName)
+
+		if _, err := os.Stat(outputFile); err == nil && !cloneYesFlag {
+			fmt.Printf("File '%s' already exists. Overwrite? [y/N]: ", outputFile)
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Println("Cancelled.")
+				return nil
 			}
 		}
 
@@ -96,7 +109,7 @@ Examples:
 			Type:           activeVault.Type,
 		}
 
-		// FIX: Pass the new details struct and the cloned vault data
+		// Save the cloned vault to file
 		if err := vault.SaveVault(clonedVaultDetails, clonedVault); err != nil {
 			return errors.New(colors.SafeColor(
 				fmt.Sprintf("failed to save new vault to '%s': %s", outputFile, err.Error()),
@@ -104,9 +117,26 @@ Examples:
 			))
 		}
 
+		// Add the cloned vault to config.json
+		if config.Cfg.Vaults == nil {
+			config.Cfg.Vaults = make(map[string]config.VaultDetails)
+		}
+		config.Cfg.Vaults[clonedVaultName] = clonedVaultDetails
+
+		if err := config.SaveConfig(); err != nil {
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %s", err.Error()),
+				colors.Error,
+			))
+		}
+
 		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Isolated vault successfully created at '%s' containing %d wallets from '%s'.", outputFile, len(clonedVault), config.Cfg.ActiveVault),
+			fmt.Sprintf("Isolated vault '%s' successfully created at '%s' containing %d wallets from '%s'.", clonedVaultName, outputFile, len(clonedVault), config.Cfg.ActiveVault),
 			colors.Success,
+		))
+		fmt.Println(colors.SafeColor(
+			fmt.Sprintf("💡 Use 'vault.module vaults use %s' to switch to the new vault", clonedVaultName),
+			colors.Info,
 		))
 		return nil
 	},
@@ -116,6 +146,5 @@ func init() {
 	// Регистрация перенесена в root.go
 
 	// Настройка флагов
-	cloneCmd.Flags().StringSliceVar(&clonePrefixes, "prefix", []string{}, "Prefixes of wallets to include in the cloned vault (can be specified multiple times).")
 	cloneCmd.Flags().BoolVar(&cloneYesFlag, "yes", false, "Overwrite without confirmation prompt")
 }

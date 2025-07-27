@@ -4,7 +4,7 @@ import (
 	"os"
 )
 
-// Цветовые коды ANSI
+// ANSI color codes
 const (
 	ResetCode  = "\033[0m"
 	RedCode    = "\033[31m"
@@ -17,24 +17,24 @@ const (
 	DimCode    = "\033[2m"
 )
 
-// Основные цвета для сообщений
+// Main colors for messages
 func Error(text string) string {
-	return RedCode + "❌ " + text + ResetCode
+	return RedCode + text + ResetCode
 }
 
 func Success(text string) string {
-	return GreenCode + "✅ " + text + ResetCode
+	return GreenCode + text + ResetCode
 }
 
 func Warning(text string) string {
-	return YellowCode + "⚠️ " + text + ResetCode
+	return YellowCode + text + ResetCode
 }
 
 func Info(text string) string {
-	return BlueCode + "ℹ️ " + text + ResetCode
+	return BlueCode + text + ResetCode
 }
 
-// Дополнительные цвета для элементов
+// Additional colors for elements
 func Cyan(text string) string {
 	return CyanCode + text + ResetCode
 }
@@ -55,14 +55,14 @@ func White(text string) string {
 	return WhiteCode + text + ResetCode
 }
 
-// Проверка, поддерживает ли терминал цвета
+// Check if terminal supports colors
 func SupportsColors() bool {
-	// Проверяем переменную окружения NO_COLOR
+	// Check NO_COLOR environment variable
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}
 
-	// Проверяем, что stdout подключен к терминалу
+	// Check if stdout is connected to terminal
 	fileInfo, err := os.Stdout.Stat()
 	if err != nil {
 		return false
@@ -71,7 +71,7 @@ func SupportsColors() bool {
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
-// Безопасный вывод с цветами (отключает цвета если не поддерживаются)
+// Safe color output (disables colors if not supported)
 func SafeColor(text string, colorFunc func(string) string) string {
 	if SupportsColors() {
 		return colorFunc(text)

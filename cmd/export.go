@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"vault.module/internal/actions"
@@ -21,18 +22,20 @@ import (
 var exportYes bool
 
 var exportCmd = &cobra.Command{
-	Use:   "export <OUTPUT_FILE>",
+	Use:   "export [OUTPUT_FILE]",
 	Short: "Exports all accounts from the active vault to an unencrypted JSON file.",
 	Long: `Exports all accounts from the active vault to an unencrypted JSON file.
 
 This command exports all wallets and their data to a JSON file.
 The exported file will be unencrypted, so handle it with care.
+If no output file is specified, it will create a file in the vault directory.
 
 Examples:
-  vault.module export wallets.json
-  vault.module export backup.json --yes
+  vault.module export                    # Export to vault_directory/export.json
+  vault.module export wallets.json       # Export to specific file
+  vault.module export backup.json --yes  # Export with confirmation skip
 `,
-	Args: cobra.ExactArgs(1),
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Проверяем состояние vault перед выполнением команды
 		if err := checkVaultStatus(); err != nil {
@@ -50,7 +53,16 @@ Examples:
 				colors.Error,
 			))
 		}
-		outputFile := args[0]
+
+		// Determine output file
+		var outputFile string
+		if len(args) > 0 {
+			outputFile = args[0]
+		} else {
+			// Generate default filename in vault directory
+			vaultDir := filepath.Dir(activeVault.KeyFile)
+			outputFile = filepath.Join(vaultDir, "export.json")
+		}
 
 		if _, err := os.Stat(outputFile); err == nil && !exportYes {
 			fmt.Printf("File '%s' already exists. Overwrite? [y/N]: ", outputFile)

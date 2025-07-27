@@ -2,7 +2,6 @@
 package cmd
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,7 +19,7 @@ import (
 )
 
 var keyFile, recipientsFile, vaultType string
-var vaultsRemoveYesFlag bool
+var vaultsDeleteYesFlag bool
 
 // validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
@@ -55,7 +54,7 @@ var vaultsCmd = &cobra.Command{
 	Long: `Manage multiple vault configurations.
 
 This command allows you to manage multiple vault configurations.
-Use subcommands to add, list, remove, or switch between vaults.
+Use subcommands to add, list, delete, or switch between vaults.
 
 Examples:
   vault.module vaults list
@@ -272,10 +271,10 @@ var vaultsUseCmd = &cobra.Command{
 	},
 }
 
-// vaultsRemoveCmd removes a vault from the configuration and deletes the vault file.
-var vaultsRemoveCmd = &cobra.Command{
-	Use:   "remove <NAME>",
-	Short: "Removes a vault from the configuration and deletes the vault file.",
+// vaultsDeleteCmd deletes a vault from the configuration and deletes the vault file.
+var vaultsDeleteCmd = &cobra.Command{
+	Use:   "delete <NAME>",
+	Short: "Deletes a vault from the configuration and deletes the vault file.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
@@ -284,13 +283,10 @@ var vaultsRemoveCmd = &cobra.Command{
 			return fmt.Errorf("no vault with the name '%s' found", name)
 		}
 
-		if !vaultsRemoveYesFlag {
-			fmt.Printf("Are you sure you want to remove vault '%s' and delete its file at '%s'? [y/N]: ", name, vaultDetails.KeyFile)
-			reader := bufio.NewReader(os.Stdin)
-			answer, _ := reader.ReadString('\n')
-			answer = strings.TrimSpace(strings.ToLower(answer))
-			if answer != "y" && answer != "yes" {
-				fmt.Println("Cancelled.")
+		if !vaultsDeleteYesFlag {
+			prompt := fmt.Sprintf("Are you sure you want to delete vault '%s' and delete its file at '%s'? This action is irreversible.", name, vaultDetails.KeyFile)
+			if !askForConfirmation(colors.SafeColor(prompt, colors.Warning)) {
+				fmt.Println(colors.SafeColor("Cancelled.", colors.Info))
 				return nil
 			}
 		}
@@ -317,13 +313,13 @@ var vaultsRemoveCmd = &cobra.Command{
 				slog.String("key_file", vaultDetails.KeyFile))
 		}
 
-		// Remove from configuration
+		// Delete from configuration
 		delete(config.Cfg.Vaults, name)
 		if config.Cfg.ActiveVault == name {
 			config.Cfg.ActiveVault = ""
-			fmt.Printf("Removed active vault '%s' and deleted its file. No vault is active now.\n", name)
+			fmt.Printf("Deleted active vault '%s' and deleted its file. No vault is active now.\n", name)
 		} else {
-			fmt.Printf("Removed vault '%s' and deleted its file.\n", name)
+			fmt.Printf("Deleted vault '%s' and deleted its file.\n", name)
 		}
 
 		if err := config.SaveConfig(); err != nil {
@@ -350,5 +346,5 @@ func init() {
 
 	_ = vaultsAddCmd.MarkFlagRequired("keyfile")
 	_ = vaultsAddCmd.MarkFlagRequired("type")
-	vaultsRemoveCmd.Flags().BoolVar(&vaultsRemoveYesFlag, "yes", false, "Remove without confirmation prompt")
+	vaultsDeleteCmd.Flags().BoolVar(&vaultsDeleteYesFlag, "yes", false, "Delete without confirmation prompt")
 }
