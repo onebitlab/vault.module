@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -12,6 +13,7 @@ import (
 type SecureClipboard struct {
 	lastData   string
 	clearTimer *time.Timer
+	mutex      sync.Mutex // Добавляем мьютекс для безопасности
 }
 
 // NewSecureClipboard creates a new SecureClipboard instance
@@ -21,9 +23,13 @@ func NewSecureClipboard() *SecureClipboard {
 
 // WriteAll safely copies data to clipboard with automatic cleanup
 func (sc *SecureClipboard) WriteAll(data string) error {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
 	// Clear previous timer if exists
 	if sc.clearTimer != nil {
 		sc.clearTimer.Stop()
+		sc.clearTimer = nil
 	}
 
 	// Copy data to clipboard
@@ -35,14 +41,49 @@ func (sc *SecureClipboard) WriteAll(data string) error {
 
 	// Set timer to clear after 30 seconds
 	sc.clearTimer = time.AfterFunc(30*time.Second, func() {
-		sc.Clear()
+		sc.clearIfMatches(data) // Очищаем только если данные совпадают
 	})
 
 	return nil
 }
 
+// clearIfMatches clears clipboard only if it contains the expected data
+func (sc *SecureClipboard) clearIfMatches(expectedData string) {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
+	// Читаем текущее содержимое clipboard
+	currentData, err := sc.readFromClipboard()
+	if err != nil {
+		// Если не можем прочитать, все равно попробуем очистить
+		sc.forceClipboardClear()
+		return
+	}
+
+	// Очищаем только если данные совпадают с ожидаемыми
+	if currentData == expectedData {
+		if err := sc.copyToClipboard(""); err == nil {
+			sc.lastData = ""
+		}
+	}
+
+	// Очищаем таймер
+	if sc.clearTimer != nil {
+		sc.clearTimer.Stop()
+		sc.clearTimer = nil
+	}
+}
+
 // Clear clears clipboard
 func (sc *SecureClipboard) Clear() error {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
+	return sc.forceClipboardClear()
+}
+
+// forceClipboardClear принудительно очищает clipboard
+func (sc *SecureClipboard) forceClipboardClear() error {
 	if sc.clearTimer != nil {
 		sc.clearTimer.Stop()
 		sc.clearTimer = nil
@@ -59,6 +100,9 @@ func (sc *SecureClipboard) Clear() error {
 
 // ReadAll reads data from clipboard
 func (sc *SecureClipboard) ReadAll() (string, error) {
+	sc.mutex.Lock()
+	defer sc.mutex.Unlock()
+
 	return sc.readFromClipboard()
 }
 
@@ -83,8 +127,8 @@ func (sc *SecureClipboard) copyToClipboard(data string) error {
 		}
 		return fmt.Errorf("no clipboard tool available (install xclip or xsel)")
 	case "windows":
-		// Windows
-		cmd := exec.Command("powershell", "-command", fmt.Sprintf("Set-Clipboard -Value '%s'", data))
+		// Windows - исправляем проблему с экранированием
+		cmd := exec.Command("cmd", "/c", fmt.Sprintf(`echo|set /p="%s"|clip`, strings.ReplaceAll(data, `"`, `""`)))
 		return cmd.Run()
 	default:
 		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
@@ -127,7 +171,7 @@ func (sc *SecureClipboard) readFromClipboard() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return string(output), nil
+		return strings.TrimSpace(string(output)), nil
 	default:
 		return "", fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
@@ -141,12 +185,13 @@ func (sc *SecureClipboard) hasCommand(name string) bool {
 
 // Global clipboard instance
 var globalClipboard *SecureClipboard
+var once sync.Once
 
 // GetClipboard returns global SecureClipboard instance
 func GetClipboard() *SecureClipboard {
-	if globalClipboard == nil {
-		globalClipboard = &SecureClipboard{}
-	}
+	once.Do(func() {
+		globalClipboard = NewSecureClipboard() // Используем конструктор
+	})
 	return globalClipboard
 }
 

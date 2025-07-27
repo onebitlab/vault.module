@@ -95,5 +95,4 @@ Examples:
 }
 
 func init() {
-	// Регистрация перенесена в root.go
 }

@@ -143,8 +143,5 @@ Examples:
 }
 
 func init() {
-	// Регистрация перенесена в root.go
-
-	// Настройка флагов
 	cloneCmd.Flags().BoolVar(&cloneYesFlag, "yes", false, "Overwrite without confirmation prompt")
 }

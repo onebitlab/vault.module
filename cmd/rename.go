@@ -30,7 +30,6 @@ Examples:
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
 		if err := checkVaultStatus(); err != nil {
 			return err
 		}
@@ -78,8 +77,5 @@ Examples:
 }
 
 func init() {
-	// Регистрация перенесена в root.go
-
-	// Настройка флагов
 	renameCmd.Flags().BoolVar(&renameYesFlag, "yes", false, "Rename without confirmation prompt")
 }

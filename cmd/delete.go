@@ -104,8 +104,6 @@ Examples:
 }
 
 func init() {
-	// Регистрация перенесена в root.go
 
-	// Настройка флагов
 	deleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "Delete without confirmation prompt")
 }

@@ -29,7 +29,6 @@ Examples:
   vault.module list
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
 		if err := checkVaultStatus(); err != nil {
 			return err
 		}

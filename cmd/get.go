@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/colors"
@@ -20,6 +21,7 @@ import (
 var getIndex int
 var getJson bool
 var getCopy bool
+var getClipboardTimeout int // Новый флаг для настройки времени очистки
 
 var getCmd = &cobra.Command{
 	Use:   "get <PREFIX> <FIELD>",
@@ -37,6 +39,7 @@ Examples:
   vault.module get A1 privatekey --index 0
   vault.module get A1 mnemonic
   vault.module get A1 --json
+  vault.module get A1 privatekey --clipboard-timeout 60  # Clear after 60 seconds
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -133,9 +136,19 @@ Examples:
 				}
 				result = addressData.PrivateKey.String()
 				isSecret = true
+			case "notes":
+				audit.Logger.Info("Notes accessed", slog.String("command", "get"), slog.String("vault", config.Cfg.ActiveVault), slog.String("prefix", prefix), slog.String("field", "notes"))
+				if wallet.Notes != "" {
+					result = wallet.Notes
+				} else {
+					return errors.New(colors.SafeColor(
+						fmt.Sprintf("wallet '%s' does not have notes", prefix),
+						colors.Error,
+					))
+				}
 			default:
 				return errors.New(colors.SafeColor(
-					fmt.Sprintf("unknown field '%s'", args[1]),
+					fmt.Sprintf("unknown field '%s'. Available fields: address, privatekey, mnemonic, notes", args[1]),
 					colors.Error,
 				))
 			}
@@ -146,26 +159,77 @@ Examples:
 			fmt.Print(result)
 		} else {
 			if isSecret {
-				if err := security.CopyToClipboard(result); err != nil {
-					return errors.New(colors.SafeColor(
-						fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
-						colors.Error,
+				// Используем кастомный clipboard с настраиваемым таймером
+				clipboard := security.GetClipboard()
+
+				// Если указан кастомный таймаут, используем его
+				if getClipboardTimeout > 0 {
+					if err := copyToClipboardWithCustomTimeout(clipboard, result, getClipboardTimeout); err != nil {
+						return errors.New(colors.SafeColor(
+							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
+							colors.Error,
+						))
+					}
+					fmt.Println(colors.SafeColor(
+						fmt.Sprintf("Secret copied to clipboard. It will be cleared in %d seconds.", getClipboardTimeout),
+						colors.Success,
+					))
+				} else {
+					// Используем стандартное поведение (30 секунд)
+					if err := security.CopyToClipboard(result); err != nil {
+						return errors.New(colors.SafeColor(
+							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
+							colors.Error,
+						))
+					}
+					fmt.Println(colors.SafeColor(
+						"Secret copied to clipboard. It will be cleared in 30 seconds.",
+						colors.Success,
 					))
 				}
-				fmt.Println(colors.SafeColor(
-					"Secret copied to clipboard. It will be cleared in 30 seconds.",
-					colors.Success,
-				))
 			} else {
-				fmt.Println(result)
+				// Для несекретных данных можем тоже копировать в clipboard если указан флаг --copy
+				if getCopy {
+					if err := security.CopyToClipboard(result); err != nil {
+						return errors.New(colors.SafeColor(
+							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
+							colors.Error,
+						))
+					}
+					fmt.Println(colors.SafeColor(
+						fmt.Sprintf("Data copied to clipboard: %s", result),
+						colors.Success,
+					))
+				} else {
+					fmt.Println(result)
+				}
 			}
 		}
 		return nil
 	},
 }
 
+// copyToClipboardWithCustomTimeout копирует в clipboard с кастомным таймаутом
+func copyToClipboardWithCustomTimeout(clipboard *security.SecureClipboard, data string, timeoutSeconds int) error {
+	// Очищаем любой существующий таймер
+	clipboard.Clear()
+
+	// Используем обычную функцию для копирования в clipboard
+	if err := security.CopyToClipboard(data); err != nil {
+		return err
+	}
+
+	// Устанавливаем кастомный таймер
+	time.AfterFunc(time.Duration(timeoutSeconds)*time.Second, func() {
+		clipboard.Clear() // Это вызовет умную очистку
+	})
+
+	return nil
+}
+
 func init() {
 	getCmd.Flags().IntVar(&getIndex, "index", 0, "Index of the address within an HD wallet.")
 	getCmd.Flags().BoolVar(&getJson, "json", false, "Output all wallet data in JSON format.")
-	getCmd.Flags().BoolVarP(&getCopy, "copy", "c", false, "Copy secret to clipboard (now default behavior for secrets in interactive mode).")
+	getCmd.Flags().BoolVarP(&getCopy, "copy", "c", false, "Copy data to clipboard (applies to non-secret data).")
+	getCmd.Flags().IntVar(&getClipboardTimeout, "clipboard-timeout", 30, "Seconds after which clipboard will be cleared (default: 30).")
 }

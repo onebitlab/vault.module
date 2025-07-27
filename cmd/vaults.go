@@ -337,9 +337,6 @@ var vaultsDeleteCmd = &cobra.Command{
 }
 
 func init() {
-	// Registration moved to root.go
-
-	// Flag setup
 	vaultsAddCmd.Flags().StringVar(&keyFile, "keyfile", "", "Path to the encrypted key file for the new vault (required)")
 	vaultsAddCmd.Flags().StringVar(&recipientsFile, "recipientsfile", "", "Path to the recipients file (required for yubikey encryption)")
 	vaultsAddCmd.Flags().StringVar(&vaultType, "type", "", "Type of the vault, e.g., EVM (required)")

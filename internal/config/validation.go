@@ -135,8 +135,6 @@ func getAllEncryptionMethods() []string {
 	}
 }
 
-// LoadConfigWithValidation загружает и валидирует конфигурацию
-// Может вернуть *ConfigError
 func LoadConfigWithValidation() error {
 	if err := LoadConfig(); err != nil {
 		return NewConfigError("load", "", err.Error())
