@@ -22,7 +22,7 @@ type Address struct {
 	Index      int                    `json:"index"`
 	Path       string                 `json:"path"`
 	Address    string                 `json:"address"`
-	PrivateKey *security.SecureString `json:"-"`
+	PrivateKey *security.SecureString `json:"privateKey"`
 }
 
 // Wallet defines the structure for a wallet, which can be HD or a single key.
@@ -63,6 +63,26 @@ func (w *Wallet) Clear() {
 	}
 }
 
+// GetMnemonicHint returns a safe hint of the mnemonic (first and last word)
+func (w *Wallet) GetMnemonicHint() string {
+	if w.Mnemonic == nil {
+		return ""
+	}
+
+	// Получаем полную мнемонику для разбиения на слова
+	mnemonicStr := w.Mnemonic.String()
+	if mnemonicStr == "" {
+		return ""
+	}
+
+	// Разбиваем на слова для мнемоники
+	words := strings.Fields(mnemonicStr)
+	if len(words) >= 2 {
+		return fmt.Sprintf("%s...%s", words[0], words[len(words)-1])
+	}
+	return "mnemonic"
+}
+
 // Vault is the root structure of our vault (the JSON file).
 type Vault map[string]Wallet
 
@@ -71,23 +91,23 @@ func New() Vault {
 	return make(Vault)
 }
 
-// validateAndCleanPath проверяет и очищает путь к файлу
+// validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path cannot be empty")
 	}
 
-	// Очищаем путь от лишних символов
+	// Clean the path from extra characters
 	cleanPath := filepath.Clean(path)
 
-	// Проверяем, что путь не содержит подозрительные символы
+	// Check that the path doesn't contain suspicious characters
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains invalid characters: %s", path)
 	}
 
-	// Проверяем, что путь не является абсолютным путем к системным директориям
+	// Check that the path is not an absolute path to system directories
 	if filepath.IsAbs(cleanPath) {
-		// Проверяем, что путь не указывает на системные директории
+		// Check that the path doesn't point to system directories
 		base := filepath.Base(cleanPath)
 		if base == "" || base == "." || base == ".." {
 			return "", fmt.Errorf("invalid path: %s", path)
@@ -101,7 +121,7 @@ func validateAndCleanPath(path string) (string, error) {
 func CheckYubiKey() error {
 	audit.Logger.Info("Checking YubiKey availability")
 
-	// Сначала проверяем, что команда доступна
+	// First check if the command is available
 	if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
 		audit.Logger.Error("age-plugin-yubikey not found in PATH")
 		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
@@ -126,7 +146,7 @@ func CheckYubiKey() error {
 
 // LoadVault decrypts and loads the vault from a file, using the specified method.
 func LoadVault(details config.VaultDetails) (Vault, error) {
-	// Валидируем и очищаем путь к файлу
+	// Validate and clean the file path
 	cleanKeyFile, err := validateAndCleanPath(details.KeyFile)
 	if err != nil {
 		audit.Logger.Error("Failed to validate key file path",
@@ -150,7 +170,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 
 	switch details.Encryption {
 	case constants.EncryptionYubiKey:
-		// Проверяем наличие age-plugin-yubikey
+		// Check for age-plugin-yubikey availability
 		if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
 			return nil, fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
 		}
@@ -177,7 +197,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			return nil, fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
 		}
 
-		// Проверяем наличие age
+		// Check for age availability
 		if _, err := exec.LookPath("age"); err != nil {
 			return nil, fmt.Errorf("age is not installed or not in PATH. Please install it: https://github.com/FiloSottile/age")
 		}
@@ -225,7 +245,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		slog.String("encryption", details.Encryption),
 		slog.Int("wallet_count", len(v)))
 
-	// Валидируем и очищаем пути к файлам
+	// Validate and clean file paths
 	cleanKeyFile, err := validateAndCleanPath(details.KeyFile)
 	if err != nil {
 		audit.Logger.Error("Failed to validate key file path",
@@ -250,7 +270,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		return fmt.Errorf("failed to serialize data: %s", err.Error())
 	}
 
-	// Создаем временный файл в той же директории что и целевой файл
+	// Create a temporary file in the same directory as the target file
 	dir := filepath.Dir(cleanKeyFile)
 	if dir == "." {
 		dir = "."
@@ -266,7 +286,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 
 	switch details.Encryption {
 	case constants.EncryptionYubiKey:
-		// Проверяем наличие age
+		// Check for age availability
 		if _, err := exec.LookPath("age"); err != nil {
 			return fmt.Errorf("age is not installed or not in PATH. Please install it: https://github.com/FiloSottile/age")
 		}
@@ -298,7 +318,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		return fmt.Errorf("failed to encrypt vault: %v\n%s", runErr, stderr.String())
 	}
 
-	// Атомарно перемещаем зашифрованный файл на место
+	// Atomically move the encrypted file to its final location
 	encryptedFile := tmpfile.Name()
 
 	if err := os.Rename(encryptedFile, cleanKeyFile); err != nil {

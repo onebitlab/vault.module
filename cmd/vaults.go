@@ -22,23 +22,23 @@ import (
 var keyFile, recipientsFile, vaultType string
 var vaultsRemoveYesFlag bool
 
-// validateAndCleanPath проверяет и очищает путь к файлу
+// validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path cannot be empty")
 	}
 
-	// Очищаем путь от лишних символов
+	// Clean the path from extra characters
 	cleanPath := filepath.Clean(path)
 
-	// Проверяем, что путь не содержит подозрительные символы
+	// Check that the path doesn't contain suspicious characters
 	if strings.Contains(cleanPath, "..") {
 		return "", fmt.Errorf("path contains invalid characters: %s", path)
 	}
 
-	// Проверяем, что путь не является абсолютным путем к системным директориям
+	// Check that the path is not an absolute path to system directories
 	if filepath.IsAbs(cleanPath) {
-		// Проверяем, что путь не указывает на системные директории
+		// Check that the path doesn't point to system directories
 		base := filepath.Base(cleanPath)
 		if base == "" || base == "." || base == ".." {
 			return "", fmt.Errorf("invalid path: %s", path)
@@ -143,7 +143,7 @@ Examples:
 		// Normalize vault type to lowercase
 		normalizedVaultType := strings.ToLower(strings.TrimSpace(vaultType))
 
-		// Валидируем и очищаем пути к файлам
+		// Validate and clean file paths
 		cleanKeyFile, err := validateAndCleanPath(keyFile)
 		if err != nil {
 			return errors.New(colors.SafeColor(
@@ -179,6 +179,7 @@ Examples:
 			}
 		}
 
+		// Prepare vault details for creation
 		newVault := config.VaultDetails{
 			KeyFile:        absKeyFile,
 			RecipientsFile: absRecipientsFile,
@@ -186,6 +187,26 @@ Examples:
 			Encryption:     constants.EncryptionYubiKey,
 		}
 
+		// Automatically create the physical vault file first
+		fmt.Println(colors.SafeColor(
+			"Creating vault file...",
+			colors.Info,
+		))
+
+		// Create an empty vault
+		emptyVault := make(vault.Vault)
+		if err := vault.SaveVault(newVault, emptyVault); err != nil {
+			audit.Logger.Error("Failed to create vault file",
+				slog.String("vault_name", name),
+				slog.String("key_file", absKeyFile),
+				slog.String("error", err.Error()))
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to create vault file: %s", err.Error()),
+				colors.Error,
+			))
+		}
+
+		// Only add to config.json after successful vault file creation
 		if config.Cfg.Vaults == nil {
 			config.Cfg.Vaults = make(map[string]config.VaultDetails)
 		}
@@ -211,39 +232,17 @@ Examples:
 			slog.String("key_file", absKeyFile),
 			slog.Bool("is_active", config.Cfg.ActiveVault == name))
 
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Vault '%s' added successfully", name),
-			colors.Success,
-		))
 		if config.Cfg.ActiveVault == name {
 			fmt.Println(colors.SafeColor(
-				fmt.Sprintf("✅ Vault '%s' is now active", name),
+				fmt.Sprintf("Vault '%s' created successfully at '%s' and is now active", name, absKeyFile),
+				colors.Success,
+			))
+		} else {
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Vault '%s' created successfully at '%s'", name, absKeyFile),
 				colors.Success,
 			))
 		}
-
-		// Автоматически создаем физический файл vault
-		fmt.Println(colors.SafeColor(
-			"Creating vault file...",
-			colors.Info,
-		))
-
-		// Создаем пустой vault
-		emptyVault := make(vault.Vault)
-		if err := vault.SaveVault(newVault, emptyVault); err != nil {
-			audit.Logger.Error("Failed to create vault file",
-				slog.String("vault_name", name),
-				slog.String("key_file", absKeyFile),
-				slog.String("error", err.Error()))
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to create vault file: %s", err.Error()),
-				colors.Error,
-			))
-		}
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("✅ Vault file created successfully at '%s'", absKeyFile),
-			colors.Success,
-		))
 		fmt.Println(colors.SafeColor(
 			"💡 Next step: Run 'vault.module add <wallet>' to add wallets",
 			colors.Info,
@@ -273,18 +272,20 @@ var vaultsUseCmd = &cobra.Command{
 	},
 }
 
-// vaultsRemoveCmd removes a vault from the configuration.
+// vaultsRemoveCmd removes a vault from the configuration and deletes the vault file.
 var vaultsRemoveCmd = &cobra.Command{
 	Use:   "remove <NAME>",
-	Short: "Removes a vault from the configuration.",
+	Short: "Removes a vault from the configuration and deletes the vault file.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if _, exists := config.Cfg.Vaults[name]; !exists {
+		vaultDetails, exists := config.Cfg.Vaults[name]
+		if !exists {
 			return fmt.Errorf("no vault with the name '%s' found", name)
 		}
+
 		if !vaultsRemoveYesFlag {
-			fmt.Printf("Are you sure you want to remove vault '%s'? [y/N]: ", name)
+			fmt.Printf("Are you sure you want to remove vault '%s' and delete its file at '%s'? [y/N]: ", name, vaultDetails.KeyFile)
 			reader := bufio.NewReader(os.Stdin)
 			answer, _ := reader.ReadString('\n')
 			answer = strings.TrimSpace(strings.ToLower(answer))
@@ -293,21 +294,56 @@ var vaultsRemoveCmd = &cobra.Command{
 				return nil
 			}
 		}
+
+		// Delete the vault file first
+		if err := os.Remove(vaultDetails.KeyFile); err != nil {
+			if !os.IsNotExist(err) {
+				audit.Logger.Error("Failed to delete vault file",
+					slog.String("vault_name", name),
+					slog.String("key_file", vaultDetails.KeyFile),
+					slog.String("error", err.Error()))
+				return errors.New(colors.SafeColor(
+					fmt.Sprintf("failed to delete vault file '%s': %s", vaultDetails.KeyFile, err.Error()),
+					colors.Error,
+				))
+			}
+			// File doesn't exist, which is fine
+			audit.Logger.Warn("Vault file does not exist",
+				slog.String("vault_name", name),
+				slog.String("key_file", vaultDetails.KeyFile))
+		} else {
+			audit.Logger.Info("Vault file deleted",
+				slog.String("vault_name", name),
+				slog.String("key_file", vaultDetails.KeyFile))
+		}
+
+		// Remove from configuration
 		delete(config.Cfg.Vaults, name)
 		if config.Cfg.ActiveVault == name {
 			config.Cfg.ActiveVault = ""
-			fmt.Printf("Removed active vault '%s'. No vault is active now.\n", name)
+			fmt.Printf("Removed active vault '%s' and deleted its file. No vault is active now.\n", name)
 		} else {
-			fmt.Printf("Removed vault '%s'.\n", name)
+			fmt.Printf("Removed vault '%s' and deleted its file.\n", name)
 		}
-		return config.SaveConfig()
+
+		if err := config.SaveConfig(); err != nil {
+			audit.Logger.Error("Failed to save configuration after vault removal",
+				slog.String("vault_name", name),
+				slog.String("error", err.Error()))
+			return errors.New(colors.SafeColor(
+				fmt.Sprintf("failed to save configuration: %s", err.Error()),
+				colors.Error,
+			))
+		}
+
+		return nil
 	},
 }
 
 func init() {
-	// Регистрация перенесена в root.go
+	// Registration moved to root.go
 
-	// Настройка флагов
+	// Flag setup
 	vaultsAddCmd.Flags().StringVar(&keyFile, "keyfile", "", "Path to the encrypted key file for the new vault (required)")
 	vaultsAddCmd.Flags().StringVar(&recipientsFile, "recipientsfile", "", "Path to the recipients file (required for yubikey encryption)")
 	vaultsAddCmd.Flags().StringVar(&vaultType, "type", "", "Type of the vault, e.g., EVM (required)")

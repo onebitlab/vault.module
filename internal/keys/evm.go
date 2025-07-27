@@ -45,7 +45,7 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 		return vault.Wallet{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
-	return vault.Wallet{
+		return vault.Wallet{
 		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: EVMDerivationPath,
 		Addresses: []vault.Address{

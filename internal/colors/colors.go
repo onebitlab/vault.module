@@ -12,6 +12,7 @@ const (
 	YellowCode = "\033[33m"
 	BlueCode   = "\033[34m"
 	CyanCode   = "\033[36m"
+	WhiteCode  = "\033[37m"
 	BoldCode   = "\033[1m"
 	DimCode    = "\033[2m"
 )
@@ -48,6 +49,10 @@ func Dim(text string) string {
 
 func Bold(text string) string {
 	return BoldCode + text + ResetCode
+}
+
+func White(text string) string {
+	return WhiteCode + text + ResetCode
 }
 
 // Проверка, поддерживает ли терминал цвета

@@ -15,14 +15,14 @@ import (
 
 var programmaticMode bool
 
-// checkDependencies проверяет наличие необходимых внешних инструментов
+// checkDependencies checks for the availability of required external tools
 func checkDependencies() error {
-	// Проверяем наличие age
+	// Check for age availability
 	if _, err := exec.LookPath("age"); err != nil {
 		return fmt.Errorf("age is not installed or not in PATH. Please install age: https://github.com/FiloSottile/age")
 	}
 
-	// Проверяем наличие age-plugin-yubikey
+	// Check for age-plugin-yubikey availability
 	if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
 		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install age-plugin-yubikey: https://github.com/str4d/age-plugin-yubikey")
 	}
@@ -36,14 +36,17 @@ var rootCmd = &cobra.Command{
 	DisableAutoGenTag:     true,
 	DisableSuggestions:    false,
 	DisableFlagsInUseLine: false,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Show help if no subcommand is provided
 		cmd.Help()
 		return nil
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем зависимости только для команд, которые их используют
-		if cmd.Use != "vault.module" && cmd.Use != "help" && cmd.Use != "completion" {
+		// Check dependencies only for commands that use them
+		if cmd.Use != "vault.module" && cmd.Use != "help" {
 			if err := checkDependencies(); err != nil {
 				return err
 			}
@@ -63,8 +66,6 @@ var rootCmd = &cobra.Command{
 }
 
 func Execute() error {
-	// Отключаем автоматическую генерацию completion
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	return rootCmd.Execute()
 }
 
@@ -74,7 +75,7 @@ func init() {
 		programmaticMode = true
 	}
 
-	// Регистрация всех команд
+	// Register all commands
 	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(cloneCmd)
 	rootCmd.AddCommand(configCmd)
@@ -89,7 +90,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(vaultsCmd)
 
-	// Регистрация подкоманд vaults
+	// Register vaults subcommands
 	vaultsCmd.AddCommand(vaultsListCmd)
 	vaultsCmd.AddCommand(vaultsAddCmd)
 	vaultsCmd.AddCommand(vaultsUseCmd)

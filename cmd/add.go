@@ -4,6 +4,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"vault.module/internal/actions"
@@ -17,20 +18,13 @@ var addCmd = &cobra.Command{
 	Short: "Adds a new wallet to the active vault.",
 	Long: `Adds a new wallet to the active vault.
 
-Process:
-  1. Enter a prefix (name) for the new wallet
-  2. Choose the source:
-     1 - Mnemonic (HD-wallet)
-     2 - Private Key (single address)
-  3. Enter the mnemonic or private key
-
 Examples:
   vault.module add A1
   vault.module add mywallet
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
+		// Check vault status before executing the command
 		if err := checkVaultStatus(); err != nil {
 			return err
 		}
@@ -79,25 +73,43 @@ Examples:
 				colors.Error,
 			))
 		}
+		if strings.TrimSpace(choice) == "" {
+			return errors.New(colors.SafeColor(
+				"source choice cannot be empty. Please choose 1 for mnemonic or 2 for private key",
+				colors.Error,
+			))
+		}
 
 		var newWallet vault.Wallet
 		var finalAddress string
 		switch choice {
 		case "1":
-			mnemonic, mnemonicErr := askForInput("Enter your mnemonic phrase")
+			mnemonic, mnemonicErr := askForSecretInput("Enter your mnemonic phrase")
 			if mnemonicErr != nil {
 				return mnemonicErr
 			}
+			if strings.TrimSpace(mnemonic) == "" {
+				return errors.New(colors.SafeColor(
+					"mnemonic phrase cannot be empty",
+					colors.Error,
+				))
+			}
 			newWallet, finalAddress, err = actions.CreateWalletFromMnemonic(mnemonic, activeVault.Type)
 		case "2":
-			pkStr, pkErr := askForInput("Enter your private key")
+			pkStr, pkErr := askForSecretInput("Enter your private key")
 			if pkErr != nil {
 				return pkErr
+			}
+			if strings.TrimSpace(pkStr) == "" {
+				return errors.New(colors.SafeColor(
+					"private key cannot be empty",
+					colors.Error,
+				))
 			}
 			newWallet, finalAddress, err = actions.CreateWalletFromPrivateKey(pkStr, activeVault.Type)
 		default:
 			return errors.New(colors.SafeColor(
-				"invalid choice",
+				fmt.Sprintf("invalid source choice: '%s'. Please choose 1 for mnemonic or 2 for private key", choice),
 				colors.Error,
 			))
 		}
@@ -124,5 +136,5 @@ Examples:
 }
 
 func init() {
-	// Регистрация перенесена в root.go
+	// Registration moved to root.go
 }

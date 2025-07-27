@@ -87,10 +87,43 @@ Examples:
 				fmt.Sprintf("Saved wallets in '%s' (Type: %s):", config.Cfg.ActiveVault, activeVault.Type),
 				colors.Bold,
 			))
-			for name, wallet := range v {
-				fmt.Printf("- %s (Addresses: %d)\n", name, len(wallet.Addresses))
+			for _, prefix := range filteredPrefixes {
+				wallet := v[prefix]
+
+				// Determine wallet source and format display
+				var sourceInfo string
+				if wallet.Mnemonic != nil {
+					mnemonicHint := wallet.GetMnemonicHint()
+					if mnemonicHint != "" {
+						sourceInfo = fmt.Sprintf("HD from: %s", mnemonicHint)
+					} else {
+						sourceInfo = "HD wallet (mnemonic cleared)"
+					}
+				} else {
+					// Single key wallet - private keys are not saved to JSON for security
+					sourceInfo = "Key from private key (imported)"
+				}
+
+				fmt.Printf("- %s (%s)\n", colors.SafeColor(prefix, colors.White), colors.SafeColor(sourceInfo, colors.Yellow))
+
+				// Show notes if present
+				if wallet.Notes != "" {
+					fmt.Printf("  Notes: %s\n", colors.SafeColor(wallet.Notes, colors.Dim))
+				}
+
+				// Show addresses with index and private key hint
 				for _, addr := range wallet.Addresses {
-					fmt.Printf("    %s\n", colors.SafeColor(addr.Address, colors.Cyan))
+					fmt.Printf("  [%d] %s", addr.Index, colors.SafeColor(addr.Address, colors.Cyan))
+
+					// Show private key hint if available
+					if addr.PrivateKey != nil && addr.PrivateKey.String() != "" {
+						privateKeyStr := addr.PrivateKey.String()
+						if len(privateKeyStr) >= 6 {
+							hint := fmt.Sprintf("%s...%s", privateKeyStr[:3], privateKeyStr[len(privateKeyStr)-3:])
+							fmt.Printf(" (key: %s)", colors.SafeColor(hint, colors.Dim))
+						}
+					}
+					fmt.Println()
 				}
 			}
 		}

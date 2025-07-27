@@ -11,6 +11,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/tendermint/tendermint v0.35.9
 	github.com/tyler-smith/go-bip39 v1.1.0
+	golang.org/x/term v0.32.0
 
 )
 

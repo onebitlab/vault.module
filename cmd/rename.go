@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"vault.module/internal/actions"
 	"vault.module/internal/config"
 	"vault.module/internal/vault"
 
@@ -47,6 +48,12 @@ Examples:
 		if _, exists := v[oldPrefix]; !exists {
 			return fmt.Errorf("wallet with prefix '%s' not found", oldPrefix)
 		}
+
+		// Validate the new prefix
+		if err := actions.ValidatePrefix(newPrefix); err != nil {
+			return fmt.Errorf("invalid new prefix: %s", err.Error())
+		}
+
 		if _, exists := v[newPrefix]; exists {
 			return fmt.Errorf("wallet with prefix '%s' already exists", newPrefix)
 		}

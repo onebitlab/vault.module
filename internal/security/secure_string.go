@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"runtime"
 )
 
@@ -36,6 +37,28 @@ func (s *SecureString) String() string {
 		return ""
 	}
 	return string(s.data)
+}
+
+// GetHint возвращает безопасный отпечаток строки (первые и последние символы)
+func (s *SecureString) GetHint() string {
+	if s.data == nil {
+		return ""
+	}
+
+	// Получаем полную строку временно
+	fullStr := string(s.data)
+
+	// Создаем отпечаток
+	var hint string
+	if len(fullStr) >= 6 {
+		hint = fmt.Sprintf("%s...%s", fullStr[:3], fullStr[len(fullStr)-3:])
+	} else if len(fullStr) > 0 {
+		hint = fullStr
+	} else {
+		hint = ""
+	}
+
+	return hint
 }
 
 // MarshalJSON сериализует SecureString в JSON
