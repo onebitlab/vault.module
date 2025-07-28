@@ -94,39 +94,30 @@ func New() Vault {
 
 // validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("path cannot be empty")
-	}
+    if path == "" {
+        return "", fmt.Errorf("path cannot be empty")
+    }
 
-	// Get absolute path
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("invalid path: %s", err.Error())
-	}
-
-	// Check that the path doesn't escape working directory
-	workDir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine working directory: %s", err.Error())
-	}
-
-	workDirAbs, err := filepath.Abs(workDir)
-	if err != nil {
-		return "", fmt.Errorf("cannot determine absolute working directory: %s", err.Error())
-	}
-
-	// Ensure path is within working directory
-	if !strings.HasPrefix(absPath, workDirAbs) {
-		return "", fmt.Errorf("path outside working directory: %s", path)
-	}
-
-	// Additional check for suspicious characters
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("path contains invalid characters: %s", path)
-	}
-
-	return absPath, nil
+    // Очистка пути от относительных компонентов
+    cleanPath := filepath.Clean(path)
+    
+    // Проверка на попытки выхода за пределы
+    if strings.Contains(cleanPath, "..") {
+        return "", fmt.Errorf("path contains invalid traversal: %s", path)
+    }
+    
+    // Получение абсолютного пути
+    absPath, err := filepath.Abs(cleanPath)
+    if err != nil {
+        return "", fmt.Errorf("invalid path: %s", err.Error())
+    }
+    
+    // Проверка что путь не содержит небезопасных символов
+    if strings.ContainsAny(absPath, "<>:\"|?*") {
+        return "", fmt.Errorf("path contains invalid characters: %s", path)
+    }
+    
+    return absPath, nil
 }
 
 // lockFile applies an exclusive lock to the file
@@ -137,6 +128,32 @@ func lockFile(file *os.File) error {
 // unlockFile removes the lock from the file
 func unlockFile(file *os.File) error {
 	return unix.Flock(int(file.Fd()), unix.LOCK_UN)
+}
+
+// parseYubiKeyError парses YubiKey plugin errors and returns user-friendly messages
+func parseYubiKeyError(err error, stderr string) error {
+    exitErr, ok := err.(*exec.ExitError)
+    if !ok {
+        return fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
+    }
+    
+    exitCode := exitErr.ExitCode()
+    stderrStr := strings.ToLower(stderr)
+    
+    switch exitCode {
+    case 1:
+        if strings.Contains(stderrStr, "pin") || strings.Contains(stderrStr, "authentication") {
+            return fmt.Errorf("YubiKey PIN verification failed. Please check your PIN")
+        }
+        if strings.Contains(stderrStr, "not found") || strings.Contains(stderrStr, "no device") {
+            return fmt.Errorf("YubiKey not found. Please ensure it's connected")
+        }
+        return fmt.Errorf("YubiKey authentication error: %s", stderr)
+    case 2:
+        return fmt.Errorf("YubiKey configuration error: %s", stderr)
+    default:
+        return fmt.Errorf("YubiKey plugin error (exit code %d): %s", exitCode, stderr)
+    }
 }
 
 // CheckYubiKey checks for the availability of a YubiKey.
@@ -226,14 +243,12 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		}
 		defer tty.Close()
 		pluginCmd.Stdin = tty
-		pluginCmd.Stderr = tty
-
+		
+		var stderrBuf bytes.Buffer
+		pluginCmd.Stderr = &stderrBuf
 		identity, err := pluginCmd.Output()
 		if err != nil {
-			if _, ok := err.(*exec.ExitError); ok {
-				return nil, fmt.Errorf("yubikey plugin error (maybe wrong PIN?): %v", err)
-			}
-			return nil, fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
+			return nil, parseYubiKeyError(err, stderrBuf.String())
 		}
 
 		// Check for age availability

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/colors"
@@ -159,12 +158,9 @@ Examples:
 			fmt.Print(result)
 		} else {
 			if isSecret {
-				// Используем кастомный clipboard с настраиваемым таймером
-				clipboard := security.GetClipboard()
-
-				// Если указан кастомный таймаут, используем его
-				if getClipboardTimeout > 0 {
-					if err := copyToClipboardWithCustomTimeout(clipboard, result, getClipboardTimeout); err != nil {
+				// ИСПРАВЛЕНИЕ: Используем правильную логику для кастомного таймаута
+				if getClipboardTimeout != 30 { // Если таймаут отличается от стандартного
+					if err := copyToClipboardWithCustomTimeout(result, getClipboardTimeout); err != nil {
 						return errors.New(colors.SafeColor(
 							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
 							colors.Error,
@@ -209,20 +205,15 @@ Examples:
 	},
 }
 
-// copyToClipboardWithCustomTimeout копирует в clipboard с кастомным таймаутом
-func copyToClipboardWithCustomTimeout(clipboard *security.SecureClipboard, data string, timeoutSeconds int) error {
-	// Очищаем любой существующий таймер
-	clipboard.Clear()
+// ИСПРАВЛЕННАЯ функция для кастомного таймаута
+func copyToClipboardWithCustomTimeout(data string, timeoutSeconds int) error {
+	// Получаем экземпляр clipboard
+	clipboard := security.GetClipboard()
 
-	// Используем обычную функцию для копирования в clipboard
-	if err := security.CopyToClipboard(data); err != nil {
+	// Копируем данные напрямую без использования стандартной функции
+	if err := clipboard.WriteAllWithCustomTimeout(data, timeoutSeconds); err != nil {
 		return err
 	}
-
-	// Устанавливаем кастомный таймер
-	time.AfterFunc(time.Duration(timeoutSeconds)*time.Second, func() {
-		clipboard.Clear() // Это вызовет умную очистку
-	})
 
 	return nil
 }
