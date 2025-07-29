@@ -25,13 +25,55 @@ func (c *Clipboard) WriteAllWithCustomTimeout(data string, timeoutSeconds int) e
 		return err
 	}
 
-	// Запуск горутины для очистки через указанное время
-	go func() {
-		time.Sleep(time.Duration(timeoutSeconds) * time.Second)
-		c.clearClipboard()
-	}()
+	// Создаём независимый процесс для очистки clipboard
+	switch runtime.GOOS {
+	case "darwin":
+		return c.scheduleMacOSClipboardClear(timeoutSeconds)
+	case "linux":
+		return c.scheduleLinuxClipboardClear(timeoutSeconds)
+	case "windows":
+		return c.scheduleWindowsClipboardClear(timeoutSeconds)
+	default:
+		// Fallback к горутине для неподдерживаемых платформ
+		go func() {
+			time.Sleep(time.Duration(timeoutSeconds) * time.Second)
+			c.clearClipboard()
+		}()
+	}
 
 	return nil
+}
+
+func (c *Clipboard) scheduleMacOSClipboardClear(timeoutSeconds int) error {
+	// Используем nohup для создания независимого процесса
+	script := fmt.Sprintf("sleep %d && echo '' | pbcopy", timeoutSeconds)
+	cmd := exec.Command("nohup", "sh", "-c", script)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Start() // Start(), не Run() - чтобы не ждать завершения
+}
+
+func (c *Clipboard) scheduleLinuxClipboardClear(timeoutSeconds int) error {
+	var script string
+	if _, err := exec.LookPath("xclip"); err == nil {
+		script = fmt.Sprintf("sleep %d && echo '' | xclip -selection clipboard", timeoutSeconds)
+	} else if _, err := exec.LookPath("xsel"); err == nil {
+		script = fmt.Sprintf("sleep %d && echo '' | xsel --clipboard --input", timeoutSeconds)
+	} else {
+		return fmt.Errorf("no clipboard utility found")
+	}
+	
+	cmd := exec.Command("nohup", "sh", "-c", script)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Start()
+}
+
+func (c *Clipboard) scheduleWindowsClipboardClear(timeoutSeconds int) error {
+	// Для Windows используем timeout и start /B для фонового процесса
+	script := fmt.Sprintf("timeout %d >nul && echo. | clip", timeoutSeconds)
+	cmd := exec.Command("cmd", "/C", "start", "/B", script)
+	return cmd.Start()
 }
 
 func (c *Clipboard) writeToClipboard(data string) error {
@@ -64,10 +106,16 @@ func (c *Clipboard) writeToClipboard(data string) error {
 }
 
 func (c *Clipboard) clearClipboard() error {
-	return c.writeToClipboard("")
+	// Очищаем clipboard, записывая пустую строку
+	if err := c.writeToClipboard(""); err != nil {
+		// Если очистка не удалась, попробуем записать пробел
+		return c.writeToClipboard(" ")
+	}
+	return nil
 }
 
 // Стандартная функция для совместимости
 func CopyToClipboard(data string) error {
 	return GetClipboard().WriteAllWithCustomTimeout(data, 30)
 }
+

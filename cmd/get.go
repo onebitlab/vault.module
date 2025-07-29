@@ -158,7 +158,7 @@ Examples:
 			fmt.Print(result)
 		} else {
 			if isSecret {
-				// ИСПРАВЛЕНИЕ: Используем правильную логику для кастомного таймаута
+				// Используем правильную логику для кастомного таймаута
 				if getClipboardTimeout != 30 { // Если таймаут отличается от стандартного
 					if err := copyToClipboardWithCustomTimeout(result, getClipboardTimeout); err != nil {
 						return errors.New(colors.SafeColor(
@@ -167,7 +167,7 @@ Examples:
 						))
 					}
 					fmt.Println(colors.SafeColor(
-						fmt.Sprintf("Secret copied to clipboard. It will be cleared in %d seconds.", getClipboardTimeout),
+						fmt.Sprintf("Secret copied to clipboard. Independent process will clear it in %d seconds.", getClipboardTimeout),
 						colors.Success,
 					))
 				} else {
@@ -179,7 +179,7 @@ Examples:
 						))
 					}
 					fmt.Println(colors.SafeColor(
-						"Secret copied to clipboard. It will be cleared in 30 seconds.",
+						"Secret copied to clipboard. Independent process will clear it in 30 seconds.",
 						colors.Success,
 					))
 				}
