@@ -46,19 +46,38 @@ func CreateWalletFromPrivateKey(pkStr, vaultType string) (vault.Wallet, string, 
 	return newWallet, finalAddress, nil
 }
 
-// ValidatePrefix checks if a prefix follows the naming rules.
+// ValidatePrefix checks if a prefix follows the naming rules with enhanced security.
 func ValidatePrefix(prefix string) error {
 	if prefix == "" {
 		return fmt.Errorf("prefix cannot be empty")
 	}
+	
+	// Check maximum length (32 characters - optimal balance)
+	if len(prefix) > 32 {
+		return fmt.Errorf("prefix too long (max 32 characters, got %d)", len(prefix))
+	}
+	
+	// Check for valid characters (latin letters, numbers, underscore)
 	match, _ := regexp.MatchString("^[a-zA-Z0-9_]+$", prefix)
 	if !match {
-		return fmt.Errorf("prefix can only contain latin letters, numbers, and the '_' symbol")
+		return fmt.Errorf("prefix can only contain latin letters, numbers and '_' symbols")
 	}
-	match, _ = regexp.MatchString("^[0-9]", prefix)
+	
+	// Check that prefix doesn't start with number or underscore
+	match, _ = regexp.MatchString("^[0-9_]", prefix)
 	if match {
-		return fmt.Errorf("prefix cannot start with a number")
+		return fmt.Errorf("prefix cannot start with number or '_'")
 	}
+	
+	// Check for reserved prefixes that might cause conflicts
+	reservedPrefixes := []string{"system", "config", "admin", "root", "vault", "temp", "tmp"}
+	lowerPrefix := strings.ToLower(prefix)
+	for _, reserved := range reservedPrefixes {
+		if lowerPrefix == reserved {
+			return fmt.Errorf("prefix '%s' is reserved and cannot be used", prefix)
+		}
+	}
+	
 	return nil
 }
 

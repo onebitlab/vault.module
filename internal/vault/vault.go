@@ -3,6 +3,7 @@ package vault
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 	"vault.module/internal/audit"
@@ -94,30 +96,30 @@ func New() Vault {
 
 // validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
-    if path == "" {
-        return "", fmt.Errorf("path cannot be empty")
-    }
+	if path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
 
-    // Очистка пути от относительных компонентов
-    cleanPath := filepath.Clean(path)
-    
-    // Проверка на попытки выхода за пределы
-    if strings.Contains(cleanPath, "..") {
-        return "", fmt.Errorf("path contains invalid traversal: %s", path)
-    }
-    
-    // Получение абсолютного пути
-    absPath, err := filepath.Abs(cleanPath)
-    if err != nil {
-        return "", fmt.Errorf("invalid path: %s", err.Error())
-    }
-    
-    // Проверка что путь не содержит небезопасных символов
-    if strings.ContainsAny(absPath, "<>:\"|?*") {
-        return "", fmt.Errorf("path contains invalid characters: %s", path)
-    }
-    
-    return absPath, nil
+	// Очистка пути от относительных компонентов
+	cleanPath := filepath.Clean(path)
+
+	// Проверка на попытки выхода за пределы
+	if strings.Contains(cleanPath, "..") {
+		return "", fmt.Errorf("path contains invalid traversal: %s", path)
+	}
+
+	// Получение абсолютного пути
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %s", err.Error())
+	}
+
+	// Проверка что путь не содержит небезопасных символов
+	if strings.ContainsAny(absPath, "<>:\"|?*") {
+		return "", fmt.Errorf("path contains invalid characters: %s", path)
+	}
+
+	return absPath, nil
 }
 
 // lockFile applies an exclusive lock to the file
@@ -132,28 +134,28 @@ func unlockFile(file *os.File) error {
 
 // parseYubiKeyError парses YubiKey plugin errors and returns user-friendly messages
 func parseYubiKeyError(err error, stderr string) error {
-    exitErr, ok := err.(*exec.ExitError)
-    if !ok {
-        return fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
-    }
-    
-    exitCode := exitErr.ExitCode()
-    stderrStr := strings.ToLower(stderr)
-    
-    switch exitCode {
-    case 1:
-        if strings.Contains(stderrStr, "pin") || strings.Contains(stderrStr, "authentication") {
-            return fmt.Errorf("YubiKey PIN verification failed. Please check your PIN")
-        }
-        if strings.Contains(stderrStr, "not found") || strings.Contains(stderrStr, "no device") {
-            return fmt.Errorf("YubiKey not found. Please ensure it's connected")
-        }
-        return fmt.Errorf("YubiKey authentication error: %s", stderr)
-    case 2:
-        return fmt.Errorf("YubiKey configuration error: %s", stderr)
-    default:
-        return fmt.Errorf("YubiKey plugin error (exit code %d): %s", exitCode, stderr)
-    }
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		return fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
+	}
+
+	exitCode := exitErr.ExitCode()
+	stderrStr := strings.ToLower(stderr)
+
+	switch exitCode {
+	case 1:
+		if strings.Contains(stderrStr, "pin") || strings.Contains(stderrStr, "authentication") {
+			return fmt.Errorf("YubiKey PIN verification failed. Please check your PIN")
+		}
+		if strings.Contains(stderrStr, "not found") || strings.Contains(stderrStr, "no device") {
+			return fmt.Errorf("YubiKey not found. Please ensure it's connected")
+		}
+		return fmt.Errorf("YubiKey authentication error: %s", stderr)
+	case 2:
+		return fmt.Errorf("YubiKey configuration error: %s", stderr)
+	default:
+		return fmt.Errorf("YubiKey plugin error (exit code %d): %s", exitCode, stderr)
+	}
 }
 
 // CheckYubiKey checks for the availability of a YubiKey.
@@ -166,7 +168,10 @@ func CheckYubiKey() error {
 		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
 	}
 
-	cmd := exec.Command("age-plugin-yubikey", "--list")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "age-plugin-yubikey", "--list")
 	output, err := cmd.CombinedOutput() // CombinedOutput gets both stdout and stderr
 	if err != nil {
 		audit.Logger.Error("Failed to run YubiKey check",
@@ -231,11 +236,14 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			return nil, fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
 		}
 
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
 		pluginArgs := []string{"-i"}
 		if config.Cfg.YubikeySlot != "" {
 			pluginArgs = append(pluginArgs, "--slot", config.Cfg.YubikeySlot)
 		}
-		pluginCmd := exec.Command("age-plugin-yubikey", pluginArgs...)
+		pluginCmd := exec.CommandContext(ctx, "age-plugin-yubikey", pluginArgs...)
 
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
@@ -243,7 +251,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		}
 		defer tty.Close()
 		pluginCmd.Stdin = tty
-		
+
 		var stderrBuf bytes.Buffer
 		pluginCmd.Stderr = &stderrBuf
 		identity, err := pluginCmd.Output()
@@ -256,7 +264,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			return nil, fmt.Errorf("age is not installed or not in PATH. Please install it: https://github.com/FiloSottile/age")
 		}
 
-		ageCmd = exec.Command("age", "--decrypt", "-i", "-", cleanKeyFile)
+		ageCmd = exec.CommandContext(ctx, "age", "--decrypt", "-i", "-", cleanKeyFile)
 		ageCmd.Stdin = bytes.NewReader(identity)
 
 	default:
@@ -367,8 +375,12 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		if _, err := os.Stat(cleanRecipientsFile); os.IsNotExist(err) {
 			return fmt.Errorf("recipients file '%s' not found", cleanRecipientsFile)
 		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
 		args := []string{"-a", "-R", cleanRecipientsFile, "-o", tmpfile.Name()}
-		cmd = exec.Command("age", args...)
+		cmd = exec.CommandContext(ctx, "age", args...)
 		cmd.Stdin = bytes.NewReader(data)
 
 	default:

@@ -43,7 +43,7 @@ func ValidateConfig(cfg *Config) error {
 	return nil
 }
 
-// ValidateVaultDetails проверяет детали конкретного vault'а
+// ValidateVaultDetails проверяет детали конкретного vault'а с улучшенной валидацией путей
 // Может вернуть *ConfigError
 func ValidateVaultDetails(name string, details VaultDetails) error {
 	if err := ValidateVaultName(name); err != nil {
@@ -58,24 +58,27 @@ func ValidateVaultDetails(name string, details VaultDetails) error {
 	if details.KeyFile == "" {
 		return NewConfigError("keyfile", "", "cannot be empty")
 	}
-	keyDir := filepath.Dir(details.KeyFile)
-	stat, err := os.Stat(keyDir)
-	if err != nil || !stat.IsDir() {
-		return NewConfigError("keyfile_dir", keyDir, "directory does not exist")
+	
+	// Enhanced keyfile validation with symlink checking
+	if err := ValidateFilePath(details.KeyFile, "keyfile"); err != nil {
+		return NewConfigError("keyfile", details.KeyFile, err.Error())
 	}
+	
+	// Validate keyfile directory with enhanced security
+	keyDir := filepath.Dir(details.KeyFile)
+	if err := ValidateDirectoryPath(keyDir, "keyfile directory"); err != nil {
+		return NewConfigError("keyfile_dir", keyDir, err.Error())
+	}
+	
+	// Enhanced recipients file validation for YubiKey encryption
 	if details.Encryption == constants.EncryptionYubiKey {
 		if details.RecipientsFile == "" {
 			return NewConfigError("recipients_file", "", "required for yubikey encryption")
 		}
-		stat, err := os.Stat(details.RecipientsFile)
-		if err != nil || stat.IsDir() {
-			return NewConfigError("recipients_file", details.RecipientsFile, "file does not exist or is a directory")
+		
+		if err := ValidateFilePath(details.RecipientsFile, "recipients file"); err != nil {
+			return NewConfigError("recipients_file", details.RecipientsFile, err.Error())
 		}
-		f, err := os.Open(details.RecipientsFile)
-		if err != nil {
-			return NewConfigError("recipients_file", details.RecipientsFile, "cannot read file")
-		}
-		f.Close()
 	}
 	return nil
 }
@@ -133,6 +136,163 @@ func getAllEncryptionMethods() []string {
 	return []string{
 		constants.EncryptionYubiKey,
 	}
+}
+
+// ValidateFilePath validates file paths with security checks including symlink resolution
+func ValidateFilePath(filePath string, description string) error {
+	if filePath == "" {
+		return fmt.Errorf("%s path cannot be empty", description)
+	}
+	
+	// Clean the path to resolve any . and .. elements
+	cleanPath := filepath.Clean(filePath)
+	
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("%s path contains invalid path traversal elements", description)
+	}
+	
+	// Resolve symlinks to get the actual path
+	realPath, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		// If EvalSymlinks fails, the file might not exist yet, so we check the directory
+		dirPath := filepath.Dir(cleanPath)
+		if _, dirErr := os.Stat(dirPath); os.IsNotExist(dirErr) {
+			return fmt.Errorf("%s directory does not exist: %s", description, dirPath)
+		}
+		// If directory exists but file doesn't, that's acceptable for new files
+		return nil
+	}
+	
+	// Check if the resolved path is different from original (indicates symlink)
+	if realPath != cleanPath {
+		// Additional security check: ensure symlink doesn't point outside allowed areas
+		if err := validateSymlinkSecurity(cleanPath, realPath, description); err != nil {
+			return err
+		}
+	}
+	
+	// Check file permissions and accessibility
+	if err := validateFileAccess(realPath, description); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// ValidateDirectoryPath validates directory paths with security checks including symlink resolution
+func ValidateDirectoryPath(dirPath string, description string) error {
+	if dirPath == "" {
+		return fmt.Errorf("%s directory path cannot be empty", description)
+	}
+	
+	// Clean the path
+	cleanPath := filepath.Clean(dirPath)
+	
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("%s directory path contains invalid path traversal elements", description)
+	}
+	
+	// Resolve symlinks
+	realPath, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve %s directory path: %v", description, err)
+	}
+	
+	// Check if resolved path is different (indicates symlink)
+	if realPath != cleanPath {
+		if err := validateSymlinkSecurity(cleanPath, realPath, description+" directory"); err != nil {
+			return err
+		}
+	}
+	
+	// Verify it's actually a directory
+	stat, err := os.Stat(realPath)
+	if err != nil {
+		return fmt.Errorf("%s directory does not exist: %s", description, realPath)
+	}
+	
+	if !stat.IsDir() {
+		return fmt.Errorf("%s path is not a directory: %s", description, realPath)
+	}
+	
+	// Check directory permissions
+	if err := validateDirectoryAccess(realPath, description); err != nil {
+		return err
+	}
+	
+	return nil
+}
+
+// validateSymlinkSecurity checks if symlink is safe to use
+func validateSymlinkSecurity(originalPath, realPath, description string) error {
+	// Get absolute paths for comparison
+	absOriginal, err := filepath.Abs(originalPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for %s: %v", description, err)
+	}
+	
+	absReal, err := filepath.Abs(realPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute real path for %s: %v", description, err)
+	}
+	
+	// Basic security: ensure symlink doesn't point to system directories
+	systemDirs := []string{"/etc", "/sys", "/proc", "/dev", "/boot", "/root"}
+	for _, sysDir := range systemDirs {
+		if strings.HasPrefix(absReal, sysDir) {
+			return fmt.Errorf("%s symlink points to restricted system directory: %s", description, absReal)
+		}
+	}
+	
+	// Log symlink usage for audit purposes
+	fmt.Printf("Warning: %s uses symbolic link: %s -> %s\n", description, absOriginal, absReal)
+	
+	return nil
+}
+
+// validateFileAccess checks file permissions and accessibility
+func validateFileAccess(filePath, description string) error {
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot access %s file: %v", description, err)
+	}
+	
+	// Check if it's actually a file
+	if stat.IsDir() {
+		return fmt.Errorf("%s path points to a directory, not a file: %s", description, filePath)
+	}
+	
+	// Check read permissions
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("cannot read %s file: %v", description, err)
+	}
+	file.Close()
+	
+	return nil
+}
+
+// validateDirectoryAccess checks directory permissions
+func validateDirectoryAccess(dirPath, description string) error {
+	// Test read access
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Errorf("cannot read %s directory: %v", description, err)
+	}
+	
+	// Check write access by trying to create a temporary file
+	tempFile := filepath.Join(dirPath, ".vault_test_write")
+	file, err := os.Create(tempFile)
+	if err != nil {
+		return fmt.Errorf("cannot write to %s directory: %v", description, err)
+	}
+	file.Close()
+	os.Remove(tempFile) // Clean up
+	
+	_ = entries // Avoid unused variable warning
+	return nil
 }
 
 func LoadConfigWithValidation() error {
