@@ -18,10 +18,11 @@ type VaultDetails struct {
 
 // Config defines the new structure of the configuration file.
 type Config struct {
-	AuthToken   string                  `mapstructure:"authtoken"`
-	YubikeySlot string                  `mapstructure:"yubikeyslot"`
-	ActiveVault string                  `mapstructure:"active_vault"`
-	Vaults      map[string]VaultDetails `mapstructure:"vaults"`
+	AuthToken           string                  `mapstructure:"authtoken"`
+	YubikeySlot         string                  `mapstructure:"yubikeyslot"`
+	ActiveVault         string                  `mapstructure:"active_vault"`
+	ClipboardTimeout    int                     `mapstructure:"clipboard_timeout"`    // Timeout in seconds for clipboard clearing
+	Vaults              map[string]VaultDetails `mapstructure:"vaults"`
 }
 
 // Cfg is a global variable that holds the loaded configuration.
@@ -50,6 +51,7 @@ func LoadConfig() error {
 	viper.SetDefault("authtoken", "")
 	viper.SetDefault("yubikeyslot", "")
 	viper.SetDefault("active_vault", "")
+	viper.SetDefault("clipboard_timeout", 30) // Default 30 seconds
 	viper.SetDefault("vaults", map[string]VaultDetails{})
 	viper.SetConfigName("config")
 	viper.SetConfigType("json")
@@ -66,11 +68,21 @@ func LoadConfig() error {
 	return viper.Unmarshal(&Cfg)
 }
 
+// GetClipboardTimeout returns the clipboard timeout value from configuration.
+// If not set or invalid, returns the default value of 30 seconds.
+func GetClipboardTimeout() int {
+	if Cfg.ClipboardTimeout <= 0 {
+		return 30 // Default fallback
+	}
+	return Cfg.ClipboardTimeout
+}
+
 // SaveConfig saves the current configuration to a file.
 func SaveConfig() error {
 	viper.Set("authtoken", Cfg.AuthToken)
 	viper.Set("yubikeyslot", Cfg.YubikeySlot)
 	viper.Set("active_vault", Cfg.ActiveVault)
+	viper.Set("clipboard_timeout", Cfg.ClipboardTimeout)
 	viper.Set("vaults", Cfg.Vaults)
 	if err := os.MkdirAll(".", 0755); err != nil {
 		return err

@@ -17,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const defaultClipboardTimeout = 30
+
 var getIndex int
 var getJson bool
 var getCopy bool
@@ -63,6 +65,12 @@ Examples:
 				colors.Error,
 			))
 		}
+		// Ensure vault secrets are cleared when function exits
+		defer func() {
+			for _, wallet := range v {
+				wallet.Clear()
+			}
+		}()
 
 		wallet, exists := v[prefix]
 		if !exists {
@@ -158,31 +166,17 @@ Examples:
 			fmt.Print(result)
 		} else {
 			if isSecret {
-				// Используем правильную логику для кастомного таймаута
-				if getClipboardTimeout != 30 { // Если таймаут отличается от стандартного
-					if err := copyToClipboardWithCustomTimeout(result, getClipboardTimeout); err != nil {
-						return errors.New(colors.SafeColor(
-							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
-							colors.Error,
-						))
-					}
-					fmt.Println(colors.SafeColor(
-						fmt.Sprintf("Secret copied to clipboard. Independent process will clear it in %d seconds.", getClipboardTimeout),
-						colors.Success,
-					))
-				} else {
-					// Используем стандартное поведение (30 секунд)
-					if err := security.CopyToClipboard(result); err != nil {
-						return errors.New(colors.SafeColor(
-							fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
-							colors.Error,
-						))
-					}
-					fmt.Println(colors.SafeColor(
-						"Secret copied to clipboard. Independent process will clear it in 30 seconds.",
-						colors.Success,
+				// Копируем в clipboard с настраиваемым таймаутом
+				if err := security.GetClipboard().WriteAllWithCustomTimeout(result, getClipboardTimeout); err != nil {
+					return errors.New(colors.SafeColor(
+						fmt.Sprintf("failed to copy to clipboard: %s", err.Error()),
+						colors.Error,
 					))
 				}
+				fmt.Println(colors.SafeColor(
+					fmt.Sprintf("Secret copied to clipboard. Independent process will clear it in %d seconds.", getClipboardTimeout),
+					colors.Success,
+				))
 			} else {
 				// Для несекретных данных можем тоже копировать в clipboard если указан флаг --copy
 				if getCopy {
@@ -205,22 +199,11 @@ Examples:
 	},
 }
 
-// ИСПРАВЛЕННАЯ функция для кастомного таймаута
-func copyToClipboardWithCustomTimeout(data string, timeoutSeconds int) error {
-	// Получаем экземпляр clipboard
-	clipboard := security.GetClipboard()
 
-	// Копируем данные напрямую без использования стандартной функции
-	if err := clipboard.WriteAllWithCustomTimeout(data, timeoutSeconds); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func init() {
 	getCmd.Flags().IntVar(&getIndex, "index", 0, "Index of the address within an HD wallet.")
 	getCmd.Flags().BoolVar(&getJson, "json", false, "Output all wallet data in JSON format.")
 	getCmd.Flags().BoolVarP(&getCopy, "copy", "c", false, "Copy data to clipboard (applies to non-secret data).")
-	getCmd.Flags().IntVar(&getClipboardTimeout, "clipboard-timeout", 30, "Seconds after which clipboard will be cleared (default: 30).")
+	getCmd.Flags().IntVar(&getClipboardTimeout, "clipboard-timeout", defaultClipboardTimeout, "Seconds after which clipboard will be cleared (default: 30).")
 }

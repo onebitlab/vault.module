@@ -72,18 +72,19 @@ func (w *Wallet) GetMnemonicHint() string {
 		return ""
 	}
 
-	// Получаем полную мнемонику для разбиения на слова
-	mnemonicStr := w.Mnemonic.String()
-	if mnemonicStr == "" {
-		return ""
-	}
+	// Use WithValueSync to safely access mnemonic
+	return w.Mnemonic.WithValueSync(func(mnemonicStr string) string {
+		if mnemonicStr == "" {
+			return ""
+		}
 
-	// Разбиваем на слова для мнемоники
-	words := strings.Fields(mnemonicStr)
-	if len(words) >= 2 {
-		return fmt.Sprintf("%s...%s", words[0], words[len(words)-1])
-	}
-	return "mnemonic"
+		// Split into words for mnemonic
+		words := strings.Fields(mnemonicStr)
+		if len(words) >= 2 {
+			return fmt.Sprintf("%s...%s", words[0], words[len(words)-1])
+		}
+		return "mnemonic"
+	})
 }
 
 // Vault is the root structure of our vault (the JSON file).

@@ -25,6 +25,21 @@ func CreateWalletFromMnemonic(mnemonic, vaultType string) (vault.Wallet, string,
 		return vault.Wallet{}, "", err
 	}
 
+	// Ensure we clear the wallet secrets if there's an error later
+	defer func() {
+		if err != nil {
+			// Clear all secrets in the wallet
+			if newWallet.Mnemonic != nil {
+				newWallet.Mnemonic.Clear()
+			}
+			for i := range newWallet.Addresses {
+				if newWallet.Addresses[i].PrivateKey != nil {
+					newWallet.Addresses[i].PrivateKey.Clear()
+				}
+			}
+		}
+	}()
+
 	// The first address is always created.
 	finalAddress := newWallet.Addresses[0].Address
 	return newWallet, finalAddress, nil
@@ -41,6 +56,21 @@ func CreateWalletFromPrivateKey(pkStr, vaultType string) (vault.Wallet, string, 
 	if err != nil {
 		return vault.Wallet{}, "", err
 	}
+
+	// Ensure we clear the wallet secrets if there's an error later
+	defer func() {
+		if err != nil {
+			// Clear all secrets in the wallet
+			if newWallet.Mnemonic != nil {
+				newWallet.Mnemonic.Clear()
+			}
+			for i := range newWallet.Addresses {
+				if newWallet.Addresses[i].PrivateKey != nil {
+					newWallet.Addresses[i].PrivateKey.Clear()
+				}
+			}
+		}
+	}()
 
 	finalAddress := newWallet.Addresses[0].Address
 	return newWallet, finalAddress, nil

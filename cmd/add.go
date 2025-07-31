@@ -58,6 +58,12 @@ Examples:
 				colors.Error,
 			))
 		}
+		// Ensure vault secrets are cleared when function exits
+		defer func() {
+			for _, wallet := range v {
+				wallet.Clear()
+			}
+		}()
 		if _, exists := v[prefix]; exists {
 			return errors.New(colors.SafeColor(
 				fmt.Sprintf("wallet with prefix '%s' already exists", prefix),

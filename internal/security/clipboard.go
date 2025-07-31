@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"vault.module/internal/config"
 )
 
 type Clipboard struct{}
@@ -116,6 +117,6 @@ func (c *Clipboard) clearClipboard() error {
 
 // Стандартная функция для совместимости
 func CopyToClipboard(data string) error {
-	return GetClipboard().WriteAllWithCustomTimeout(data, 30)
+	return GetClipboard().WriteAllWithCustomTimeout(data, config.GetClipboardTimeout())
 }
 

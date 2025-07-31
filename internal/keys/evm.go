@@ -45,7 +45,30 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 		return vault.Wallet{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
-		return vault.Wallet{
+	// Create SecureString for private key
+	privateKeyStr := privateKeyToEVMString(privateKey)
+	privateKeySecure := security.NewSecureString(privateKeyStr)
+	defer func() {
+		if privateKeySecure != nil {
+			privateKeySecure.Clear()
+		}
+	}()
+
+	// Очистить временную строку из памяти
+	// Конвертируем в []byte для безопасной очистки
+	privateKeyStrBytes := []byte(privateKeyStr)
+	for i := range privateKeyStrBytes {
+		privateKeyStrBytes[i] = 0
+	}
+	privateKeyStr = "" // Обнуляем ссылку на строку
+	
+	// Clear sensitive data from memory immediately
+	privateKeyBytes := crypto.FromECDSA(privateKey)
+	for i := range privateKeyBytes {
+		privateKeyBytes[i] = 0
+	}
+
+	return vault.Wallet{
 		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: EVMDerivationPath,
 		Addresses: []vault.Address{
@@ -53,7 +76,7 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 				Index:      0,
 				Path:       path,
 				Address:    address,
-				PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
+				PrivateKey: privateKeySecure,
 			},
 		},
 	}, nil
@@ -75,13 +98,36 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 		return vault.Wallet{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
+	// Create SecureString for private key
+	privateKeyStr := privateKeyToEVMString(privateKey)
+	privateKeySecure := security.NewSecureString(privateKeyStr)
+	defer func() {
+		if privateKeySecure != nil {
+			privateKeySecure.Clear()
+		}
+	}()
+
+	// Очистить временную строку из памяти
+	// Конвертируем в []byte для безопасной очистки
+	privateKeyStrBytes := []byte(privateKeyStr)
+	for i := range privateKeyStrBytes {
+		privateKeyStrBytes[i] = 0
+	}
+	privateKeyStr = "" // Обнуляем ссылку на строку
+	
+	// Clear sensitive data from memory immediately
+	privateKeyBytes := crypto.FromECDSA(privateKey)
+	for i := range privateKeyBytes {
+		privateKeyBytes[i] = 0
+	}
+
 	return vault.Wallet{
 		Addresses: []vault.Address{
 			{
 				Index:      0,
 				Path:       "imported",
 				Address:    address,
-				PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
+				PrivateKey: privateKeySecure,
 			},
 		},
 	}, nil
@@ -95,7 +141,13 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 
 	nextIndex := len(wallet.Addresses)
 
-	hdWallet, err := createEVMWalletFromMnemonic(wallet.Mnemonic.String())
+	// Use WithValue to safely access mnemonic
+	var hdWallet *hdwallet.Wallet
+	var err error
+	err = wallet.Mnemonic.WithValue(func(mnemonicStr string) error {
+		hdWallet, err = createEVMWalletFromMnemonic(mnemonicStr)
+		return err
+	})
 	if err != nil {
 		return wallet, vault.Address{}, fmt.Errorf("failed to create wallet from mnemonic: %s", err.Error())
 	}
@@ -111,11 +163,34 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 		return wallet, vault.Address{}, fmt.Errorf("failed to generate address: %s", err.Error())
 	}
 
+	// Create SecureString for private key
+	privateKeyStr := privateKeyToEVMString(privateKey)
+	privateKeySecure := security.NewSecureString(privateKeyStr)
+	defer func() {
+		if privateKeySecure != nil {
+			privateKeySecure.Clear()
+		}
+	}()
+
+	// Очистить временную строку из памяти
+	// Конвертируем в []byte для безопасной очистки
+	privateKeyStrBytes := []byte(privateKeyStr)
+	for i := range privateKeyStrBytes {
+		privateKeyStrBytes[i] = 0
+	}
+	privateKeyStr = "" // Обнуляем ссылку на строку
+	
+	// Clear sensitive data from memory immediately
+	privateKeyBytes := crypto.FromECDSA(privateKey)
+	for i := range privateKeyBytes {
+		privateKeyBytes[i] = 0
+	}
+
 	newAddress := vault.Address{
 		Index:      nextIndex,
 		Path:       path,
 		Address:    address,
-		PrivateKey: security.NewSecureString(privateKeyToEVMString(privateKey)),
+		PrivateKey: privateKeySecure,
 	}
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)
