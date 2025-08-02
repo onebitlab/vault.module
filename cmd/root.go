@@ -15,18 +15,46 @@ import (
 
 var programmaticMode bool
 
-// checkDependencies checks for the availability of required external tools
+// checkDependencies checks for the availability and functionality of required external tools
 func checkDependencies() error {
-	// Check for age availability
+	// Check for age availability and basic functionality
 	if _, err := exec.LookPath("age"); err != nil {
 		return fmt.Errorf("age is not installed or not in PATH. Please install age: https://github.com/FiloSottile/age")
+	}
+	
+	// Test age basic functionality
+	if err := testAgeCommand(); err != nil {
+		return fmt.Errorf("age command is not working properly: %v", err)
 	}
 
 	// Check for age-plugin-yubikey availability
 	if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
 		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install age-plugin-yubikey: https://github.com/str4d/age-plugin-yubikey")
 	}
+	
+	// Test age-plugin-yubikey basic functionality
+	if err := testAgePluginYubikeyCommand(); err != nil {
+		return fmt.Errorf("age-plugin-yubikey is not working properly: %v", err)
+	}
 
+	return nil
+}
+
+// testAgeCommand tests if age command is working properly
+func testAgeCommand() error {
+	cmd := exec.Command("age", "--version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run 'age --version': %v", err)
+	}
+	return nil
+}
+
+// testAgePluginYubikeyCommand tests if age-plugin-yubikey command is working properly
+func testAgePluginYubikeyCommand() error {
+	cmd := exec.Command("age-plugin-yubikey", "--version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run 'age-plugin-yubikey --version': %v", err) 
+	}
 	return nil
 }
 

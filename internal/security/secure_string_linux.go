@@ -55,6 +55,11 @@ func (s *SecureString) unlockMemory() error {
 	return unlockErr
 }
 
+// SecureClearBytes securely clears sensitive data from a byte slice using multiple pass overwriting
+func SecureClearBytes(data []byte) {
+	secureZero(data)
+}
+
 // secureZero overwrites memory with zeros multiple times for enhanced security
 func secureZero(data []byte) {
 	if len(data) == 0 {

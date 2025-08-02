@@ -17,7 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultClipboardTimeout = 30
+const (
+	defaultClipboardTimeout = 30
+	maxClipboardTimeout     = 3600 // 1 hour maximum
+	minClipboardTimeout     = 1    // 1 second minimum
+)
 
 var getIndex int
 var getJson bool
@@ -44,6 +48,11 @@ Examples:
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Валидируем входные данные
+		if err := validateGetCommandInputs(); err != nil {
+			return err
+		}
+		
 		// Проверяем состояние vault перед выполнением команды
 		if err := checkVaultStatus(); err != nil {
 			return err
@@ -201,9 +210,27 @@ Examples:
 
 
 
+// validateGetCommandInputs validates input parameters for the get command
+func validateGetCommandInputs() error {
+	// Validate clipboard timeout range
+	if getClipboardTimeout < minClipboardTimeout {
+		return fmt.Errorf("clipboard timeout must be at least %d second(s), got %d", minClipboardTimeout, getClipboardTimeout)
+	}
+	if getClipboardTimeout > maxClipboardTimeout {
+		return fmt.Errorf("clipboard timeout must be at most %d seconds (1 hour), got %d", maxClipboardTimeout, getClipboardTimeout)
+	}
+	
+	// Validate address index (must be non-negative)
+	if getIndex < 0 {
+		return fmt.Errorf("address index must be non-negative, got %d", getIndex)
+	}
+	
+	return nil
+}
+
 func init() {
 	getCmd.Flags().IntVar(&getIndex, "index", 0, "Index of the address within an HD wallet.")
 	getCmd.Flags().BoolVar(&getJson, "json", false, "Output all wallet data in JSON format.")
 	getCmd.Flags().BoolVarP(&getCopy, "copy", "c", false, "Copy data to clipboard (applies to non-secret data).")
-	getCmd.Flags().IntVar(&getClipboardTimeout, "clipboard-timeout", defaultClipboardTimeout, "Seconds after which clipboard will be cleared (default: 30).")
+	getCmd.Flags().IntVar(&getClipboardTimeout, "clipboard-timeout", defaultClipboardTimeout, fmt.Sprintf("Seconds after which clipboard will be cleared (range: %d-%d, default: %d).", minClipboardTimeout, maxClipboardTimeout, defaultClipboardTimeout))
 }

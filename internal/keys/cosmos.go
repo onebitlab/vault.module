@@ -33,7 +33,23 @@ func (m *CosmosManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet,
 
 	address := privKey.PubKey().Address().String()
 
-	return vault.Wallet{
+	// Create SecureString for private key
+	privateKeyStr := fmt.Sprintf("%X", privKey.Bytes())
+	privateKeySecure := security.NewSecureString(privateKeyStr)
+
+	// SECURE memory clearing using proper security function
+	privateKeyStrBytes := []byte(privateKeyStr)
+	security.SecureClearBytes(privateKeyStrBytes) // Use secure multi-pass clearing
+	privateKeyStr = "" // Clear string reference
+
+	// Clear sensitive data from private key bytes immediately
+	privKeyBytes := privKey.Bytes()
+	for i := range privKeyBytes {
+		privKeyBytes[i] = 0
+	}
+
+	// Create wallet structure
+	wallet := vault.Wallet{
 		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: CosmosDerivationPath,
 		Addresses: []vault.Address{
@@ -41,10 +57,12 @@ func (m *CosmosManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet,
 				Index:      0,
 				Path:       path,
 				Address:    address,
-				PrivateKey: security.NewSecureString(fmt.Sprintf("%X", privKey.Bytes())),
+				PrivateKey: privateKeySecure,
 			},
 		},
-	}, nil
+	}
+
+	return wallet, nil
 }
 
 // CreateWalletFromPrivateKey is not supported for Cosmos in this implementation
@@ -55,26 +73,56 @@ func (m *CosmosManager) CreateWalletFromPrivateKey(pk string) (vault.Wallet, err
 
 // DeriveNextAddress derives the next address for a Cosmos HD wallet.
 func (m *CosmosManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault.Address, error) {
-	if wallet.Mnemonic == nil || wallet.Mnemonic.String() == "" {
+	if wallet.Mnemonic == nil || wallet.Mnemonic.IsEmpty() {
 		return wallet, vault.Address{}, fmt.Errorf("derivation is only possible for HD wallets (with a mnemonic)")
 	}
 
 	nextIndex := len(wallet.Addresses)
 	path := fmt.Sprintf("%s/%d", wallet.DerivationPath, nextIndex)
 
-	privKey, err := deriveCosmosPrivateKey(wallet.Mnemonic.String(), path)
+	// Use WithValue to safely access mnemonic
+	var privKey secp256k1.PrivKey
+	var err error
+	err = wallet.Mnemonic.WithValue(func(mnemonicStr string) error {
+		privKey, err = deriveCosmosPrivateKey(mnemonicStr, path)
+		return err
+	})
 	if err != nil {
 		return wallet, vault.Address{}, err
 	}
 
 	address := privKey.PubKey().Address().String()
 
+	// Create SecureString for private key
+	privateKeyStr := fmt.Sprintf("%X", privKey.Bytes())
+	privateKeySecure := security.NewSecureString(privateKeyStr)
+
+	// SECURE memory clearing using proper security function
+	privateKeyStrBytes := []byte(privateKeyStr)
+	security.SecureClearBytes(privateKeyStrBytes) // Use secure multi-pass clearing
+	privateKeyStr = "" // Clear string reference
+
+	// Clear sensitive data from private key bytes immediately
+	privKeyBytes := privKey.Bytes()
+	for i := range privKeyBytes {
+		privKeyBytes[i] = 0
+	}
+
+	// Create new address structure
 	newAddress := vault.Address{
 		Index:      nextIndex,
 		Path:       path,
 		Address:    address,
-		PrivateKey: security.NewSecureString(fmt.Sprintf("%X", privKey.Bytes())),
+		PrivateKey: privateKeySecure,
 	}
+
+	// Add cleanup for error cases
+	defer func() {
+		if err != nil {
+			// Clean up secrets if an error occurs after this point
+			newAddress.PrivateKey.Clear()
+		}
+	}()
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)
 	return wallet, newAddress, nil

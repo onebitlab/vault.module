@@ -48,19 +48,11 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 	// Create SecureString for private key
 	privateKeyStr := privateKeyToEVMString(privateKey)
 	privateKeySecure := security.NewSecureString(privateKeyStr)
-	defer func() {
-		if privateKeySecure != nil {
-			privateKeySecure.Clear()
-		}
-	}()
 
-	// Очистить временную строку из памяти
-	// Конвертируем в []byte для безопасной очистки
+	// SECURE memory clearing using proper security function
 	privateKeyStrBytes := []byte(privateKeyStr)
-	for i := range privateKeyStrBytes {
-		privateKeyStrBytes[i] = 0
-	}
-	privateKeyStr = "" // Обнуляем ссылку на строку
+	security.SecureClearBytes(privateKeyStrBytes) // Use secure multi-pass clearing
+	privateKeyStr = "" // Clear string reference
 	
 	// Clear sensitive data from memory immediately
 	privateKeyBytes := crypto.FromECDSA(privateKey)
@@ -68,7 +60,8 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 		privateKeyBytes[i] = 0
 	}
 
-	return vault.Wallet{
+	// Create wallet structure
+	wallet := vault.Wallet{
 		Mnemonic:       security.NewSecureString(mnemonic),
 		DerivationPath: EVMDerivationPath,
 		Addresses: []vault.Address{
@@ -79,7 +72,10 @@ func (m *EVMManager) CreateWalletFromMnemonic(mnemonic string) (vault.Wallet, er
 				PrivateKey: privateKeySecure,
 			},
 		},
-	}, nil
+	}
+
+	// Set up cleanup in case of future errors (defer not needed here as we return immediately)
+	return wallet, nil
 }
 
 // CreateWalletFromPrivateKey creates a wallet from a private key.
@@ -101,19 +97,11 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 	// Create SecureString for private key
 	privateKeyStr := privateKeyToEVMString(privateKey)
 	privateKeySecure := security.NewSecureString(privateKeyStr)
-	defer func() {
-		if privateKeySecure != nil {
-			privateKeySecure.Clear()
-		}
-	}()
 
-	// Очистить временную строку из памяти
-	// Конвертируем в []byte для безопасной очистки
+	// SECURE memory clearing using proper security function
 	privateKeyStrBytes := []byte(privateKeyStr)
-	for i := range privateKeyStrBytes {
-		privateKeyStrBytes[i] = 0
-	}
-	privateKeyStr = "" // Обнуляем ссылку на строку
+	security.SecureClearBytes(privateKeyStrBytes) // Use secure multi-pass clearing
+	privateKeyStr = "" // Clear string reference
 	
 	// Clear sensitive data from memory immediately
 	privateKeyBytes := crypto.FromECDSA(privateKey)
@@ -121,7 +109,8 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 		privateKeyBytes[i] = 0
 	}
 
-	return vault.Wallet{
+	// Create wallet structure
+	wallet := vault.Wallet{
 		Addresses: []vault.Address{
 			{
 				Index:      0,
@@ -130,7 +119,10 @@ func (m *EVMManager) CreateWalletFromPrivateKey(pkStr string) (vault.Wallet, err
 				PrivateKey: privateKeySecure,
 			},
 		},
-	}, nil
+	}
+
+	// Set up cleanup in case of future errors (defer not needed here as we return immediately)
+	return wallet, nil
 }
 
 // DeriveNextAddress derives the next address for an HD wallet.
@@ -166,19 +158,11 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 	// Create SecureString for private key
 	privateKeyStr := privateKeyToEVMString(privateKey)
 	privateKeySecure := security.NewSecureString(privateKeyStr)
-	defer func() {
-		if privateKeySecure != nil {
-			privateKeySecure.Clear()
-		}
-	}()
 
-	// Очистить временную строку из памяти
-	// Конвертируем в []byte для безопасной очистки
+	// SECURE memory clearing using proper security function
 	privateKeyStrBytes := []byte(privateKeyStr)
-	for i := range privateKeyStrBytes {
-		privateKeyStrBytes[i] = 0
-	}
-	privateKeyStr = "" // Обнуляем ссылку на строку
+	security.SecureClearBytes(privateKeyStrBytes) // Use secure multi-pass clearing
+	privateKeyStr = "" // Clear string reference
 	
 	// Clear sensitive data from memory immediately
 	privateKeyBytes := crypto.FromECDSA(privateKey)
@@ -186,12 +170,21 @@ func (m *EVMManager) DeriveNextAddress(wallet vault.Wallet) (vault.Wallet, vault
 		privateKeyBytes[i] = 0
 	}
 
+	// Create new address structure
 	newAddress := vault.Address{
 		Index:      nextIndex,
 		Path:       path,
 		Address:    address,
 		PrivateKey: privateKeySecure,
 	}
+
+	// Add cleanup for error cases
+	defer func() {
+		if err != nil {
+			// Clean up secrets if an error occurs after this point
+			newAddress.PrivateKey.Clear()
+		}
+	}()
 
 	wallet.Addresses = append(wallet.Addresses, newAddress)
 	return wallet, newAddress, nil

@@ -275,16 +275,36 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	ageCmd.Stdout = &out
+	// Don't overwrite stderr if it was already set (e.g., for YubiKey error handling)
 	if ageCmd.Stderr == nil {
 		ageCmd.Stderr = &stderr
 	}
 
 	if err := ageCmd.Run(); err != nil {
+		// Get stderr content - handle case where stderr might be set elsewhere
+		var stderrContent string
+		if ageCmd.Stderr == &stderr {
+			stderrContent = stderr.String()
+		} else {
+			// If stderr was set elsewhere, we might not have direct access
+			stderrContent = "stderr output not available"
+		}
+		
+		// For YubiKey encryption, provide more specific error handling
+		if details.Encryption == constants.EncryptionYubiKey {
+			// Check if this is a YubiKey-related error during decryption
+			if strings.Contains(strings.ToLower(stderrContent), "yubikey") || 
+			   strings.Contains(strings.ToLower(stderrContent), "pin") ||
+			   strings.Contains(strings.ToLower(stderrContent), "authentication") {
+				return nil, parseYubiKeyError(err, stderrContent)
+			}
+		}
+		
 		audit.Logger.Error("Failed to decrypt vault",
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", err.Error()),
-			slog.String("stderr", stderr.String()))
-		return nil, fmt.Errorf("failed to decrypt vault: %v\n%s", err, stderr.String())
+			slog.String("stderr", stderrContent))
+		return nil, fmt.Errorf("failed to decrypt vault: %v\n%s", err, stderrContent)
 	}
 
 	var v Vault
@@ -344,6 +364,24 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		}
 	}
 
+	// SIMPLIFIED: Create lock file to prevent concurrent saves
+	lockFileName := cleanKeyFile + ".lock"
+	lockFile, err := os.OpenFile(lockFileName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("vault save already in progress (lock file exists): %s", lockFileName)
+		}
+		return fmt.Errorf("failed to create lock file: %s", err.Error())
+	}
+	
+	defer func() {
+		lockFile.Close()
+		os.Remove(lockFileName) // Always clean up lock file
+	}()
+	
+	audit.Logger.Debug("Lock file created for save operation", slog.String("lock_file", lockFileName))
+
+	// Serialize data after acquiring lock
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize data: %s", err.Error())
@@ -401,32 +439,17 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		return fmt.Errorf("failed to encrypt vault: %v\n%s", runErr, stderr.String())
 	}
 
-	// Atomically move the encrypted file to its final location
+	// Atomically replace the target file with our encrypted temporary file
 	encryptedFile := tmpfile.Name()
-
+	tmpfile.Close() // Close handle to allow rename
+	
+	// Atomically rename temp file to target file
 	if err := os.Rename(encryptedFile, cleanKeyFile); err != nil {
 		audit.Logger.Error("Failed to atomically move encrypted file",
 			slog.String("key_file", cleanKeyFile),
 			slog.String("temp_file", encryptedFile),
 			slog.String("error", err.Error()))
 		return fmt.Errorf("failed to atomically move encrypted file: %s", err.Error())
-	}
-
-	// Lock the final file to prevent concurrent access
-	finalFile, err := os.OpenFile(cleanKeyFile, os.O_RDWR, 0600)
-	if err != nil {
-		audit.Logger.Error("Failed to open final file for locking",
-			slog.String("key_file", cleanKeyFile),
-			slog.String("error", err.Error()))
-		// Don't return error as file is already saved
-	} else {
-		defer finalFile.Close()
-		if err := lockFile(finalFile); err != nil {
-			audit.Logger.Error("Failed to lock final file",
-				slog.String("key_file", cleanKeyFile),
-				slog.String("error", err.Error()))
-			// Don't return error as file is already saved
-		}
 	}
 
 	// Set secure permissions for the final file
