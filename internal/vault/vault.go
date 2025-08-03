@@ -17,6 +17,7 @@ import (
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
+	"vault.module/internal/errors"
 	"vault.module/internal/security"
 )
 
@@ -98,26 +99,26 @@ func New() Vault {
 // validateAndCleanPath validates and cleans the file path
 func validateAndCleanPath(path string) (string, error) {
 	if path == "" {
-		return "", fmt.Errorf("path cannot be empty")
+		return "", errors.NewVaultInvalidPathError(path, fmt.Errorf("path cannot be empty"))
 	}
 
-	// Очистка пути от относительных компонентов
+	// Clean path from relative components
 	cleanPath := filepath.Clean(path)
 
-	// Проверка на попытки выхода за пределы
+	// Check for attempts to escape boundaries
 	if strings.Contains(cleanPath, "..") {
-		return "", fmt.Errorf("path contains invalid traversal: %s", path)
+		return "", errors.NewVaultInvalidPathError(path, fmt.Errorf("path contains invalid traversal"))
 	}
 
-	// Получение абсолютного пути
+	// Get absolute path
 	absPath, err := filepath.Abs(cleanPath)
 	if err != nil {
-		return "", fmt.Errorf("invalid path: %s", err.Error())
+		return "", errors.NewVaultInvalidPathError(path, err)
 	}
 
-	// Проверка что путь не содержит небезопасных символов
+	// Check that path doesn't contain unsafe characters
 	if strings.ContainsAny(absPath, "<>:\"|?*") {
-		return "", fmt.Errorf("path contains invalid characters: %s", path)
+		return "", errors.NewVaultInvalidPathError(path, fmt.Errorf("path contains invalid characters"))
 	}
 
 	return absPath, nil
@@ -133,32 +134,6 @@ func unlockFile(file *os.File) error {
 	return unix.Flock(int(file.Fd()), unix.LOCK_UN)
 }
 
-// parseYubiKeyError парses YubiKey plugin errors and returns user-friendly messages
-func parseYubiKeyError(err error, stderr string) error {
-	exitErr, ok := err.(*exec.ExitError)
-	if !ok {
-		return fmt.Errorf("failed to run age-plugin-yubikey: %v", err)
-	}
-
-	exitCode := exitErr.ExitCode()
-	stderrStr := strings.ToLower(stderr)
-
-	switch exitCode {
-	case 1:
-		if strings.Contains(stderrStr, "pin") || strings.Contains(stderrStr, "authentication") {
-			return fmt.Errorf("YubiKey PIN verification failed. Please check your PIN")
-		}
-		if strings.Contains(stderrStr, "not found") || strings.Contains(stderrStr, "no device") {
-			return fmt.Errorf("YubiKey not found. Please ensure it's connected")
-		}
-		return fmt.Errorf("YubiKey authentication error: %s", stderr)
-	case 2:
-		return fmt.Errorf("YubiKey configuration error: %s", stderr)
-	default:
-		return fmt.Errorf("YubiKey plugin error (exit code %d): %s", exitCode, stderr)
-	}
-}
-
 // CheckYubiKey checks for the availability of a YubiKey.
 func CheckYubiKey() error {
 	audit.Logger.Info("Checking YubiKey availability")
@@ -166,7 +141,7 @@ func CheckYubiKey() error {
 	// First check if the command is available
 	if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
 		audit.Logger.Error("age-plugin-yubikey not found in PATH")
-		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
+		return errors.NewDependencyError("age-plugin-yubikey", "Please install it: https://github.com/str4d/age-plugin-yubikey")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -178,11 +153,11 @@ func CheckYubiKey() error {
 		audit.Logger.Error("Failed to run YubiKey check",
 			slog.String("error", err.Error()),
 			slog.String("output", string(output)))
-		return fmt.Errorf("could not run yubikey check: %v\n%s", err, string(output))
+		return errors.ParseYubiKeyError(err, string(output))
 	}
 	if strings.TrimSpace(string(output)) == "" {
 		audit.Logger.Warn("No YubiKey found or no age keys on it")
-		return fmt.Errorf("no yubikey found or no age keys on it")
+		return errors.NewYubikeyNotFoundError()
 	}
 
 	audit.Logger.Info("YubiKey check completed successfully")
@@ -197,7 +172,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		audit.Logger.Error("Failed to validate key file path",
 			slog.String("key_file", details.KeyFile),
 			slog.String("error", err.Error()))
-		return nil, fmt.Errorf("invalid key file path: %s", err.Error())
+		return nil, err
 	}
 
 	if _, err := os.Stat(cleanKeyFile); os.IsNotExist(err) {
@@ -217,7 +192,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		audit.Logger.Error("Failed to open vault file for locking",
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to open vault file: %s", err.Error())
+		return nil, errors.NewFileSystemError("open", cleanKeyFile, err)
 	}
 	defer file.Close()
 
@@ -225,7 +200,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		audit.Logger.Error("Failed to lock vault file",
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to lock vault file: %s", err.Error())
+		return nil, errors.NewVaultLockedError(cleanKeyFile)
 	}
 
 	var ageCmd *exec.Cmd
@@ -234,7 +209,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	case constants.EncryptionYubiKey:
 		// Check for age-plugin-yubikey availability
 		if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
-			return nil, fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install it: https://github.com/str4d/age-plugin-yubikey")
+			return nil, errors.NewDependencyError("age-plugin-yubikey", "Please install it: https://github.com/str4d/age-plugin-yubikey")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -248,7 +223,8 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 		if err != nil {
-			return nil, fmt.Errorf("could not open TTY for PIN entry: %s", err.Error())
+			return nil, errors.NewFileSystemError("open", "/dev/tty", err).
+				WithDetails("could not open TTY for PIN entry")
 		}
 		defer tty.Close()
 		pluginCmd.Stdin = tty
@@ -257,19 +233,19 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		pluginCmd.Stderr = &stderrBuf
 		identity, err := pluginCmd.Output()
 		if err != nil {
-			return nil, parseYubiKeyError(err, stderrBuf.String())
+			return nil, errors.ParseYubiKeyError(err, stderrBuf.String())
 		}
 
 		// Check for age availability
 		if _, err := exec.LookPath("age"); err != nil {
-			return nil, fmt.Errorf("age is not installed or not in PATH. Please install it: https://github.com/FiloSottile/age")
+			return nil, errors.NewDependencyError("age", "Please install it: https://github.com/FiloSottile/age")
 		}
 
 		ageCmd = exec.CommandContext(ctx, "age", "--decrypt", "-i", "-", cleanKeyFile)
 		ageCmd.Stdin = bytes.NewReader(identity)
 
 	default:
-		return nil, fmt.Errorf("unknown encryption method: %s", details.Encryption)
+		return nil, errors.NewFormatInvalidError(details.Encryption, "unknown encryption method")
 	}
 
 	var out bytes.Buffer
@@ -296,7 +272,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			if strings.Contains(strings.ToLower(stderrContent), "yubikey") || 
 			   strings.Contains(strings.ToLower(stderrContent), "pin") ||
 			   strings.Contains(strings.ToLower(stderrContent), "authentication") {
-				return nil, parseYubiKeyError(err, stderrContent)
+				return nil, errors.ParseYubiKeyError(err, stderrContent)
 			}
 		}
 		
@@ -304,7 +280,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", err.Error()),
 			slog.String("stderr", stderrContent))
-		return nil, fmt.Errorf("failed to decrypt vault: %v\n%s", err, stderrContent)
+		return nil, errors.NewVaultLoadError(cleanKeyFile, err).WithDetails(stderrContent)
 	}
 
 	var v Vault
@@ -312,7 +288,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		audit.Logger.Error("Failed to parse vault data",
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", err.Error()))
-		return nil, fmt.Errorf("failed to parse vault data (file may be corrupt): %s", err.Error())
+		return nil, errors.NewVaultCorruptError(cleanKeyFile, err)
 	}
 
 	audit.Logger.Info("Vault loaded successfully",
@@ -350,7 +326,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		audit.Logger.Error("Failed to validate key file path",
 			slog.String("key_file", details.KeyFile),
 			slog.String("error", err.Error()))
-		return fmt.Errorf("invalid key file path: %s", err.Error())
+		return err
 	}
 
 	var cleanRecipientsFile string
@@ -360,7 +336,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 			audit.Logger.Error("Failed to validate recipients file path",
 				slog.String("recipients_file", details.RecipientsFile),
 				slog.String("error", err.Error()))
-			return fmt.Errorf("invalid recipients file path: %s", err.Error())
+			return err
 		}
 	}
 
@@ -369,9 +345,9 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	lockFile, err := os.OpenFile(lockFileName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		if os.IsExist(err) {
-			return fmt.Errorf("vault save already in progress (lock file exists): %s", lockFileName)
+			return errors.NewVaultLockedError(cleanKeyFile)
 		}
-		return fmt.Errorf("failed to create lock file: %s", err.Error())
+		return errors.NewFileSystemError("create", lockFileName, err)
 	}
 	
 	defer func() {
@@ -384,7 +360,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	// Serialize data after acquiring lock
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to serialize data: %s", err.Error())
+		return errors.New(errors.ErrCodeInternal, "failed to serialize vault data").WithContext("marshal_error", err.Error())
 	}
 
 	// Create a temporary file in the same directory as the target file
@@ -395,7 +371,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 
 	tmpfile, err := createSecureTempFile(dir)
 	if err != nil {
-		return fmt.Errorf("could not create temp file: %s", err.Error())
+		return errors.NewFileSystemError("create", dir, err).WithDetails("could not create temp file")
 	}
 	defer os.Remove(tmpfile.Name()) // clean up
 
@@ -405,14 +381,14 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	case constants.EncryptionYubiKey:
 		// Check for age availability
 		if _, err := exec.LookPath("age"); err != nil {
-			return fmt.Errorf("age is not installed or not in PATH. Please install it: https://github.com/FiloSottile/age")
+			return errors.NewDependencyError("age", "Please install it: https://github.com/FiloSottile/age")
 		}
 
 		if cleanRecipientsFile == "" {
-			return fmt.Errorf("recipients file is required for yubikey encryption")
+			return errors.NewConfigMissingError("recipients_file").WithDetails("recipients file is required for yubikey encryption")
 		}
 		if _, err := os.Stat(cleanRecipientsFile); os.IsNotExist(err) {
-			return fmt.Errorf("recipients file '%s' not found", cleanRecipientsFile)
+			return errors.NewFileSystemError("access", cleanRecipientsFile, err).WithDetails("recipients file not found")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -423,7 +399,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		cmd.Stdin = bytes.NewReader(data)
 
 	default:
-		return fmt.Errorf("unknown encryption method: %s", details.Encryption)
+		return errors.NewFormatInvalidError(details.Encryption, "unknown encryption method")
 	}
 
 	var stderr bytes.Buffer
@@ -436,7 +412,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 			slog.String("key_file", cleanKeyFile),
 			slog.String("error", runErr.Error()),
 			slog.String("stderr", stderr.String()))
-		return fmt.Errorf("failed to encrypt vault: %v\n%s", runErr, stderr.String())
+		return errors.NewVaultSaveError(cleanKeyFile, runErr).WithDetails(stderr.String())
 	}
 
 	// Atomically replace the target file with our encrypted temporary file
@@ -449,7 +425,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 			slog.String("key_file", cleanKeyFile),
 			slog.String("temp_file", encryptedFile),
 			slog.String("error", err.Error()))
-		return fmt.Errorf("failed to atomically move encrypted file: %s", err.Error())
+		return errors.NewFileSystemError("rename", encryptedFile, err).WithDetails("failed to atomically move encrypted file")
 	}
 
 	// Set secure permissions for the final file

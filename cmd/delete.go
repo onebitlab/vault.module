@@ -2,13 +2,13 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -30,76 +30,72 @@ Examples:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
-		if err := checkVaultStatus(); err != nil {
-			return err
-		}
+		return errors.WrapCommand(func() error {
+			// Check vault status before executing the command
+			if err := checkVaultStatus(); err != nil {
+				return err
+			}
 
-		activeVault, err := config.GetActiveVault()
-		if err != nil {
-			return err
-		}
+			activeVault, err := config.GetActiveVault()
+			if err != nil {
+				return err
+			}
 
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
-			))
-		}
-		prefix := args[0]
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("delete")
+			}
+			
+			prefix := args[0]
 
 		fmt.Println(colors.SafeColor(
 			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
 			colors.Info,
 		))
 
-		// FIX: Pass the whole activeVault struct
-		v, err := vault.LoadVault(activeVault)
-		if err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %s", err.Error()),
-				colors.Error,
-			))
-		}
-
-		if _, exists := v[prefix]; !exists {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
-				colors.Error,
-			))
-		}
-
-		if !deleteYes {
-			prompt := fmt.Sprintf("Are you sure you want to delete wallet '%s' from vault '%s'? This action is irreversible.", prefix, config.Cfg.ActiveVault)
-			if !askForConfirmation(colors.SafeColor(prompt, colors.Warning)) {
-				fmt.Println(colors.SafeColor("Cancelled.", colors.Info))
-				return nil
+			v, err := vault.LoadVault(activeVault)
+			if err != nil {
+				return errors.NewVaultLoadError(activeVault.KeyFile, err)
 			}
-		}
+			
+			// Ensure vault secrets are cleared when function exits
+			defer func() {
+				for _, wallet := range v {
+					wallet.Clear()
+				}
+			}()
 
-		audit.Logger.Warn("Attempting wallet deletion",
-			slog.String("command", "delete"),
-			slog.String("vault", config.Cfg.ActiveVault),
-			slog.String("prefix", prefix),
-		)
+			if _, exists := v[prefix]; !exists {
+				return errors.NewWalletNotFoundError(prefix, config.Cfg.ActiveVault)
+			}
 
-		delete(v, prefix)
+			if !deleteYes {
+				prompt := fmt.Sprintf("Are you sure you want to delete wallet '%s' from vault '%s'? This action is irreversible.", prefix, config.Cfg.ActiveVault)
+				if !askForConfirmation(colors.SafeColor(prompt, colors.Warning)) {
+					fmt.Println(colors.SafeColor("Cancelled.", colors.Info))
+					return nil
+				}
+			}
 
-		// FIX: Pass the whole activeVault struct
-		if err := vault.SaveVault(activeVault, v); err != nil {
-			audit.Logger.Error("Failed to save vault after deletion", "error", err.Error(), "prefix", prefix)
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %s", err.Error()),
-				colors.Error,
+			audit.Logger.Warn("Attempting wallet deletion",
+				slog.String("command", "delete"),
+				slog.String("vault", config.Cfg.ActiveVault),
+				slog.String("prefix", prefix),
+			)
+
+			delete(v, prefix)
+
+			if err := vault.SaveVault(activeVault, v); err != nil {
+				audit.Logger.Error("Failed to save vault after deletion", "error", err.Error(), "prefix", prefix)
+				return errors.NewVaultSaveError(activeVault.KeyFile, err)
+			}
+
+			audit.Logger.Info("Wallet deleted successfully", "prefix", prefix, "vault", config.Cfg.ActiveVault)
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Wallet '%s' successfully deleted from vault '%s'.", prefix, config.Cfg.ActiveVault),
+				colors.Success,
 			))
-		}
-
-		audit.Logger.Info("Wallet deleted successfully", "prefix", prefix, "vault", config.Cfg.ActiveVault)
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Wallet '%s' successfully deleted from vault '%s'.", prefix, config.Cfg.ActiveVault),
-			colors.Success,
-		))
-		return nil
+			return nil
+		})
 	},
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"vault.module/internal/audit"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 
 	"github.com/spf13/cobra"
 )
@@ -19,22 +20,22 @@ var programmaticMode bool
 func checkDependencies() error {
 	// Check for age availability and basic functionality
 	if _, err := exec.LookPath("age"); err != nil {
-		return fmt.Errorf("age is not installed or not in PATH. Please install age: https://github.com/FiloSottile/age")
+		return errors.NewDependencyError("age", "Please install age: https://github.com/FiloSottile/age")
 	}
 	
 	// Test age basic functionality
 	if err := testAgeCommand(); err != nil {
-		return fmt.Errorf("age command is not working properly: %v", err)
+		return errors.NewDependencyError("age", "age command is not working properly").WithContext("test_error", err.Error())
 	}
 
 	// Check for age-plugin-yubikey availability
 	if _, err := exec.LookPath("age-plugin-yubikey"); err != nil {
-		return fmt.Errorf("age-plugin-yubikey is not installed or not in PATH. Please install age-plugin-yubikey: https://github.com/str4d/age-plugin-yubikey")
+		return errors.NewDependencyError("age-plugin-yubikey", "Please install age-plugin-yubikey: https://github.com/str4d/age-plugin-yubikey")
 	}
 	
 	// Test age-plugin-yubikey basic functionality
 	if err := testAgePluginYubikeyCommand(); err != nil {
-		return fmt.Errorf("age-plugin-yubikey is not working properly: %v", err)
+		return errors.NewDependencyError("age-plugin-yubikey", "age-plugin-yubikey is not working properly").WithContext("test_error", err.Error())
 	}
 
 	return nil
@@ -81,10 +82,16 @@ var rootCmd = &cobra.Command{
 		}
 
 		if err := audit.InitLogger(); err != nil {
-			return fmt.Errorf("failed to initialize audit logger: %s", err.Error())
+			return errors.NewConfigLoadError("audit.log", err)
 		}
+		
+		// Initialize error handler with audit logger
+		if err := errors.InitWithAuditLogger(); err != nil {
+			return err
+		}
+		
 		if err := config.LoadConfig(); err != nil {
-			return fmt.Errorf("failed to load configuration: %s", err.Error())
+			return errors.NewConfigLoadError("config.json", err)
 		}
 		if cmd.Use != "vault.module" {
 			audit.Logger.Info("Command executed", slog.String("command", cmd.Use))

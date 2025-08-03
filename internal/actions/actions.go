@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"vault.module/internal/constants"
+	"vault.module/internal/errors"
 	"vault.module/internal/keys"
 	"vault.module/internal/vault"
 )
@@ -79,24 +80,24 @@ func CreateWalletFromPrivateKey(pkStr, vaultType string) (vault.Wallet, string, 
 // ValidatePrefix checks if a prefix follows the naming rules with enhanced security.
 func ValidatePrefix(prefix string) error {
 	if prefix == "" {
-		return fmt.Errorf("prefix cannot be empty")
+		return errors.NewInvalidPrefixError(prefix, "prefix cannot be empty")
 	}
 	
 	// Check maximum length (32 characters - optimal balance)
 	if len(prefix) > 32 {
-		return fmt.Errorf("prefix too long (max 32 characters, got %d)", len(prefix))
+		return errors.NewInvalidPrefixError(prefix, fmt.Sprintf("prefix too long (max 32 characters, got %d)", len(prefix)))
 	}
 	
 	// Check for valid characters (latin letters, numbers, underscore)
 	match, _ := regexp.MatchString("^[a-zA-Z0-9_]+$", prefix)
 	if !match {
-		return fmt.Errorf("prefix can only contain latin letters, numbers and '_' symbols")
+		return errors.NewInvalidPrefixError(prefix, "prefix can only contain latin letters, numbers and '_' symbols")
 	}
 	
 	// Check that prefix doesn't start with number or underscore
 	match, _ = regexp.MatchString("^[0-9_]", prefix)
 	if match {
-		return fmt.Errorf("prefix cannot start with number or '_'")
+		return errors.NewInvalidPrefixError(prefix, "prefix cannot start with number or '_'")
 	}
 	
 	// Check for reserved prefixes that might cause conflicts
@@ -104,7 +105,7 @@ func ValidatePrefix(prefix string) error {
 	lowerPrefix := strings.ToLower(prefix)
 	for _, reserved := range reservedPrefixes {
 		if lowerPrefix == reserved {
-			return fmt.Errorf("prefix '%s' is reserved and cannot be used", prefix)
+			return errors.NewInvalidPrefixError(prefix, fmt.Sprintf("prefix '%s' is reserved and cannot be used", prefix))
 		}
 	}
 	
@@ -131,7 +132,7 @@ func CloneVault(sourceVault vault.Vault, prefixesToClone []string) (vault.Vault,
 		clonedVault[prefix] = wallet
 	}
 	if len(clonedVault) == 0 {
-		return nil, fmt.Errorf("none of the specified wallets were found")
+		return nil, errors.New(errors.ErrCodeWalletNotFound, "none of the specified wallets were found")
 	}
 	return clonedVault, nil
 }
@@ -152,11 +153,11 @@ func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy, vaultT
 	case constants.FormatKeyValue:
 		walletsToImport, err = parseKeyValueImport(content, vaultType)
 	default:
-		return v, "", fmt.Errorf("unknown format: %s", format)
+		return v, "", errors.NewFormatInvalidError(format, "unknown format")
 	}
 
 	if err != nil {
-		return v, "", fmt.Errorf("error parsing import file: %s", err.Error())
+		return v, "", errors.NewImportFailedError(format, "error parsing import file", err)
 	}
 
 	addedCount := 0
@@ -171,9 +172,9 @@ func ImportWallets(v vault.Vault, content []byte, format, conflictPolicy, vaultT
 				continue
 			case constants.ConflictPolicyOverwrite:
 				overwrittenCount++
-				oldWallet.Clear() // очищаем секреты старого кошелька
+				oldWallet.Clear() // clear secrets from old wallet
 			case constants.ConflictPolicyFail:
-				return v, "", fmt.Errorf("wallet '%s' already exists", prefix)
+				return v, "", errors.NewWalletExistsError(prefix)
 			}
 		} else {
 			addedCount++

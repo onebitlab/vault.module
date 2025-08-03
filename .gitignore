@@ -5,3 +5,4 @@ vault.module
 *.log
 *.txt
 .DS_Store
+test_syntax.go

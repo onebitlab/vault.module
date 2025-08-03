@@ -8,6 +8,7 @@ import (
 
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -29,104 +30,113 @@ Examples:
   vault.module list
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := checkVaultStatus(); err != nil {
-			return err
-		}
-
-		activeVault, err := config.GetActiveVault()
-		if err != nil {
-			return err
-		}
-
-		v, err := vault.LoadVault(activeVault)
-		if err != nil {
-			return fmt.Errorf("failed to load vault: %s", err.Error())
-		}
-
-		if len(v) == 0 {
-			fmt.Println(colors.SafeColor(
-				fmt.Sprintf("Vault '%s' is empty.", config.Cfg.ActiveVault),
-				colors.Info,
-			))
-			return nil
-		}
-
-		filteredPrefixes := make([]string, 0, len(v))
-		for prefix := range v {
-			filteredPrefixes = append(filteredPrefixes, prefix)
-		}
-
-		if len(filteredPrefixes) == 0 {
-			fmt.Println(colors.SafeColor(
-				"No wallets found matching your filters.",
-				colors.Warning,
-			))
-			return nil
-		}
-
-		sort.Strings(filteredPrefixes)
-
-		if listJson {
-			outputVault := make(vault.Vault)
-			for _, prefix := range filteredPrefixes {
-				wallet := v[prefix]
-				if !programmaticMode {
-					outputVault[prefix] = wallet.Sanitize()
-				} else {
-					outputVault[prefix] = wallet
-				}
+		return errors.WrapCommand(func() error {
+			if err := checkVaultStatus(); err != nil {
+				return err
 			}
-			jsonData, err := json.MarshalIndent(outputVault, "", "  ")
+
+			activeVault, err := config.GetActiveVault()
 			if err != nil {
-				return fmt.Errorf("failed to generate JSON: %s", err.Error())
+				return err
 			}
-			fmt.Println(string(jsonData))
-		} else {
-			fmt.Println(colors.SafeColor(
-				fmt.Sprintf("Saved wallets in '%s' (Type: %s):", config.Cfg.ActiveVault, activeVault.Type),
-				colors.Bold,
-			))
-			for _, prefix := range filteredPrefixes {
-				wallet := v[prefix]
 
-				// Determine wallet source and format display
-				var sourceInfo string
-				if wallet.Mnemonic != nil {
-					mnemonicHint := wallet.GetMnemonicHint()
-					if mnemonicHint != "" {
-						sourceInfo = fmt.Sprintf("HD from: %s", mnemonicHint)
+			v, err := vault.LoadVault(activeVault)
+			if err != nil {
+				return errors.NewVaultLoadError(activeVault.KeyFile, err)
+			}
+			
+			// Ensure vault secrets are cleared when function exits
+			defer func() {
+				for _, wallet := range v {
+					wallet.Clear()
+				}
+			}()
+
+			if len(v) == 0 {
+				fmt.Println(colors.SafeColor(
+					fmt.Sprintf("Vault '%s' is empty.", config.Cfg.ActiveVault),
+					colors.Info,
+				))
+				return nil
+			}
+
+			filteredPrefixes := make([]string, 0, len(v))
+			for prefix := range v {
+				filteredPrefixes = append(filteredPrefixes, prefix)
+			}
+
+			if len(filteredPrefixes) == 0 {
+				fmt.Println(colors.SafeColor(
+					"No wallets found matching your filters.",
+					colors.Warning,
+				))
+				return nil
+			}
+
+			sort.Strings(filteredPrefixes)
+
+			if listJson {
+				outputVault := make(vault.Vault)
+				for _, prefix := range filteredPrefixes {
+					wallet := v[prefix]
+					if !programmaticMode {
+						outputVault[prefix] = wallet.Sanitize()
 					} else {
-						sourceInfo = "HD wallet (mnemonic cleared)"
+						outputVault[prefix] = wallet
 					}
-				} else {
-					// Single key wallet - private keys are not saved to JSON for security
-					sourceInfo = "Wallet from private key (imported)"
 				}
+				jsonData, err := json.MarshalIndent(outputVault, "", "  ")
+				if err != nil {
+					return errors.New(errors.ErrCodeInternal, "failed to generate JSON").WithContext("marshal_error", err.Error())
+				}
+				fmt.Println(string(jsonData))
+			} else {
+				fmt.Println(colors.SafeColor(
+					fmt.Sprintf("Saved wallets in '%s' (Type: %s):", config.Cfg.ActiveVault, activeVault.Type),
+					colors.Bold,
+				))
+				for _, prefix := range filteredPrefixes {
+					wallet := v[prefix]
 
-				fmt.Printf("- %s (%s)\n", colors.SafeColor(prefix, colors.White), colors.SafeColor(sourceInfo, colors.Yellow))
-
-				// Show addresses with index and private key hint
-				for _, addr := range wallet.Addresses {
-					fmt.Printf("  [%d] %s", addr.Index, colors.SafeColor(addr.Address, colors.Cyan))
-
-					// Show private key hint if available
-					if addr.PrivateKey != nil && addr.PrivateKey.String() != "" {
-						privateKeyStr := addr.PrivateKey.String()
-						if len(privateKeyStr) >= 6 {
-							hint := fmt.Sprintf("%s...%s", privateKeyStr[:3], privateKeyStr[len(privateKeyStr)-3:])
-							fmt.Printf(" (private key: %s)", colors.SafeColor(hint, colors.Dim))
+					// Determine wallet source and format display
+					var sourceInfo string
+					if wallet.Mnemonic != nil {
+						mnemonicHint := wallet.GetMnemonicHint()
+						if mnemonicHint != "" {
+							sourceInfo = fmt.Sprintf("HD from: %s", mnemonicHint)
+						} else {
+							sourceInfo = "HD wallet (mnemonic cleared)"
 						}
+					} else {
+						// Single key wallet - private keys are not saved to JSON for security
+						sourceInfo = "Wallet from private key (imported)"
 					}
-					fmt.Println()
-				}
 
-				// Show notes if present (after addresses)
-				if wallet.Notes != "" {
-					fmt.Printf("  Notes: %s\n", colors.SafeColor(wallet.Notes, colors.Dim))
+					fmt.Printf("- %s (%s)\n", colors.SafeColor(prefix, colors.White), colors.SafeColor(sourceInfo, colors.Yellow))
+
+					// Show addresses with index and private key hint
+					for _, addr := range wallet.Addresses {
+						fmt.Printf("  [%d] %s", addr.Index, colors.SafeColor(addr.Address, colors.Cyan))
+
+						// Show private key hint if available
+						if addr.PrivateKey != nil && addr.PrivateKey.String() != "" {
+							privateKeyStr := addr.PrivateKey.String()
+							if len(privateKeyStr) >= 6 {
+								hint := fmt.Sprintf("%s...%s", privateKeyStr[:3], privateKeyStr[len(privateKeyStr)-3:])
+								fmt.Printf(" (private key: %s)", colors.SafeColor(hint, colors.Dim))
+							}
+						}
+						fmt.Println()
+					}
+
+					// Show notes if present (after addresses)
+					if wallet.Notes != "" {
+						fmt.Printf("  Notes: %s\n", colors.SafeColor(wallet.Notes, colors.Dim))
+					}
 				}
 			}
-		}
-		return nil
+			return nil
+		})
 	},
 }
 

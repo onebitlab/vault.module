@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"vault.module/internal/colors"
+	"vault.module/internal/errors"
 )
 
 var configCmd = &cobra.Command{
@@ -24,38 +25,40 @@ Examples:
 `,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Try to use external formatter first
-		if externalOutput := tryExternalFormatter(); externalOutput != "" {
+		return errors.WrapCommand(func() error {
+			// Try to use external formatter first
+			if externalOutput := tryExternalFormatter(); externalOutput != "" {
+				fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
+				fmt.Println(externalOutput)
+				return nil
+			}
+
+			// Read the config.json file
+			configData, err := os.ReadFile("config.json")
+			if err != nil {
+				return errors.NewFileSystemError("read", "config.json", err)
+			}
+
+			// Parse JSON for pretty printing
+			var jsonData interface{}
+			if err := json.Unmarshal(configData, &jsonData); err != nil {
+				// If JSON is invalid, just print raw content
+				fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
+				fmt.Println(string(configData))
+				return nil
+			}
+
+			// Pretty print JSON
+			prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
+			if err != nil {
+				return errors.New(errors.ErrCodeInternal, "failed to format JSON").WithContext("marshal_error", err.Error())
+			}
+
 			fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
-			fmt.Println(externalOutput)
+			fmt.Println(string(prettyJSON))
+
 			return nil
-		}
-
-		// Read the config.json file
-		configData, err := os.ReadFile("config.json")
-		if err != nil {
-			return fmt.Errorf("failed to read config.json: %s", err.Error())
-		}
-
-		// Parse JSON for pretty printing
-		var jsonData interface{}
-		if err := json.Unmarshal(configData, &jsonData); err != nil {
-			// If JSON is invalid, just print raw content
-			fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
-			fmt.Println(string(configData))
-			return nil
-		}
-
-		// Pretty print JSON
-		prettyJSON, err := json.MarshalIndent(jsonData, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to format JSON: %s", err.Error())
-		}
-
-		fmt.Println(colors.SafeColor("Configuration file contents:", colors.Bold))
-		fmt.Println(string(prettyJSON))
-
-		return nil
+		})
 	},
 }
 

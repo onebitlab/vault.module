@@ -2,7 +2,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -10,6 +9,7 @@ import (
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
+	"vault.module/internal/errors"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -35,60 +35,58 @@ Examples:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
-		if err := checkVaultStatus(); err != nil {
-			return err
-		}
+		return errors.WrapCommand(func() error {
+			// Check vault status before executing the command
+			if err := checkVaultStatus(); err != nil {
+				return err
+			}
 
-		activeVault, err := config.GetActiveVault()
-		if err != nil {
-			return err
-		}
+			activeVault, err := config.GetActiveVault()
+			if err != nil {
+				return err
+			}
 
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
-			))
-		}
-		filePath := args[0]
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("import")
+			}
+			
+			filePath := args[0]
 
 		fmt.Println(colors.SafeColor(
 			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
 			colors.Info,
 		))
 
-		v, err := vault.LoadVault(activeVault)
-		if err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %s", err.Error()),
-				colors.Error,
-			))
-		}
+			v, err := vault.LoadVault(activeVault)
+			if err != nil {
+				return errors.NewVaultLoadError(activeVault.KeyFile, err)
+			}
+			
+			// Ensure vault secrets are cleared when function exits
+			defer func() {
+				for _, wallet := range v {
+					wallet.Clear()
+				}
+			}()
 
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to read file '%s': %s", filePath, err.Error()),
-				colors.Error,
-			))
-		}
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return errors.NewFileSystemError("read", filePath, err)
+			}
 
-		// Pass the vault type to the action to use the correct key manager.
-		updatedVault, report, err := actions.ImportWallets(v, content, importFormat, importConflict, activeVault.Type)
-		if err != nil {
-			return err
-		}
+			// Pass the vault type to the action to use the correct key manager.
+			updatedVault, report, err := actions.ImportWallets(v, content, importFormat, importConflict, activeVault.Type)
+			if err != nil {
+				return err
+			}
 
-		if err := vault.SaveVault(activeVault, updatedVault); err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %s", err.Error()),
-				colors.Error,
-			))
-		}
+			if err := vault.SaveVault(activeVault, updatedVault); err != nil {
+				return errors.NewVaultSaveError(activeVault.KeyFile, err)
+			}
 
-		fmt.Println(colors.SafeColor(report, colors.Success))
-		return nil
+			fmt.Println(colors.SafeColor(report, colors.Success))
+			return nil
+		})
 	},
 }
 

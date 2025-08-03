@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/viper"
+	"vault.module/internal/errors"
 )
 
 // VaultDetails holds the paths and type for a single vault.
@@ -31,17 +32,17 @@ var Cfg Config
 // GetActiveVault returns the details for the currently active vault.
 func GetActiveVault() (VaultDetails, error) {
 	if Cfg.ActiveVault == "" {
-		return VaultDetails{}, fmt.Errorf("no active vault is set. Use 'vaults use <name>' to set one")
+		return VaultDetails{}, errors.NewActiveVaultNotSetError()
 	}
 	activeVault, ok := Cfg.Vaults[Cfg.ActiveVault]
 	if !ok {
-		return VaultDetails{}, fmt.Errorf("active vault '%s' not found in configuration", Cfg.ActiveVault)
+		return VaultDetails{}, errors.NewVaultNotFoundError(Cfg.ActiveVault)
 	}
 	if activeVault.Type == "" {
-		return VaultDetails{}, fmt.Errorf("active vault '%s' has no type defined in config.json", Cfg.ActiveVault)
+		return VaultDetails{}, errors.NewConfigValidationError("type", "", fmt.Sprintf("active vault '%s' has no type defined in config.json", Cfg.ActiveVault))
 	}
 	if activeVault.Encryption == "" {
-		return VaultDetails{}, fmt.Errorf("active vault '%s' has no encryption method defined in config.json", Cfg.ActiveVault)
+		return VaultDetails{}, errors.NewConfigValidationError("encryption", "", fmt.Sprintf("active vault '%s' has no encryption method defined in config.json", Cfg.ActiveVault))
 	}
 	return activeVault, nil
 }
@@ -62,7 +63,7 @@ func LoadConfig() error {
 	_ = viper.BindEnv("yubikeyslot", "VAULT_YUBIKEY_SLOT")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
+			return errors.NewConfigLoadError("config.json", err)
 		}
 	}
 	return viper.Unmarshal(&Cfg)
@@ -85,7 +86,10 @@ func SaveConfig() error {
 	viper.Set("clipboard_timeout", Cfg.ClipboardTimeout)
 	viper.Set("vaults", Cfg.Vaults)
 	if err := os.MkdirAll(".", 0755); err != nil {
-		return err
+		return errors.FromOSError(err, ".")
 	}
-	return viper.WriteConfigAs("config.json")
+	if err := viper.WriteConfigAs("config.json"); err != nil {
+		return errors.NewConfigSaveError("config.json", err)
+	}
+	return nil
 }

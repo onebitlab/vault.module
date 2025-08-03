@@ -2,12 +2,12 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 
 	"vault.module/internal/actions"
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -27,69 +27,64 @@ Examples:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Проверяем состояние vault перед выполнением команды
-		if err := checkVaultStatus(); err != nil {
-			return err
-		}
+		return errors.WrapCommand(func() error {
+			// Check vault status before executing the command
+			if err := checkVaultStatus(); err != nil {
+				return err
+			}
 
-		activeVault, err := config.GetActiveVault()
-		if err != nil {
-			return err
-		}
+			activeVault, err := config.GetActiveVault()
+			if err != nil {
+				return err
+			}
 
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
-			colors.Info,
-		))
-
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+				colors.Info,
 			))
-		}
-		prefix := args[0]
 
-		v, err := vault.LoadVault(activeVault)
-		if err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to load vault: %s", err.Error()),
-				colors.Error,
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("derive")
+			}
+			
+			prefix := args[0]
+
+			v, err := vault.LoadVault(activeVault)
+			if err != nil {
+				return errors.NewVaultLoadError(activeVault.KeyFile, err)
+			}
+			
+			// Ensure vault secrets are cleared when function exits
+			defer func() {
+				for _, wallet := range v {
+					wallet.Clear()
+				}
+			}()
+
+			wallet, exists := v[prefix]
+			if !exists {
+				return errors.NewWalletNotFoundError(prefix, config.Cfg.ActiveVault)
+			}
+
+			// Pass the vault type to the action to use the correct key manager.
+			updatedWallet, newAddr, err := actions.DeriveNextAddress(wallet, activeVault.Type)
+			if err != nil {
+				return errors.NewWalletInvalidError(prefix, fmt.Sprintf("derivation error: %s", err.Error()))
+			}
+
+			v[prefix] = updatedWallet
+
+			if err := vault.SaveVault(activeVault, v); err != nil {
+				return errors.NewVaultSaveError(activeVault.KeyFile, err)
+			}
+
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("New address (index %d) successfully derived for wallet '%s'.", newAddr.Index, prefix),
+				colors.Success,
 			))
-		}
-
-		wallet, exists := v[prefix]
-		if !exists {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("wallet with prefix '%s' not found", prefix),
-				colors.Error,
-			))
-		}
-
-		// Pass the vault type to the action to use the correct key manager.
-		updatedWallet, newAddr, err := actions.DeriveNextAddress(wallet, activeVault.Type)
-		if err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("derivation error: %s", err.Error()),
-				colors.Error,
-			))
-		}
-
-		v[prefix] = updatedWallet
-
-		if err := vault.SaveVault(activeVault, v); err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to save vault: %s", err.Error()),
-				colors.Error,
-			))
-		}
-
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("New address (index %d) successfully derived for wallet '%s'.", newAddr.Index, prefix),
-			colors.Success,
-		))
-		fmt.Printf("   Address: %s\n", colors.SafeColor(newAddr.Address, colors.Cyan))
-		return nil
+			fmt.Printf("   Address: %s\n", colors.SafeColor(newAddr.Address, colors.Cyan))
+			return nil
+		})
 	},
 }
 

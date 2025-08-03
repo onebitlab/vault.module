@@ -9,6 +9,7 @@ import (
 
 	"vault.module/internal/actions"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -30,49 +31,64 @@ Examples:
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := checkVaultStatus(); err != nil {
-			return err
-		}
-
-		oldPrefix := args[0]
-		newPrefix := args[1]
-		activeVault, err := config.GetActiveVault()
-		if err != nil {
-			return err
-		}
-		v, err := vault.LoadVault(activeVault)
-		if err != nil {
-			return err
-		}
-		if _, exists := v[oldPrefix]; !exists {
-			return fmt.Errorf("wallet with prefix '%s' not found", oldPrefix)
-		}
-
-		// Validate the new prefix
-		if err := actions.ValidatePrefix(newPrefix); err != nil {
-			return fmt.Errorf("invalid new prefix: %s", err.Error())
-		}
-
-		if _, exists := v[newPrefix]; exists {
-			return fmt.Errorf("wallet with prefix '%s' already exists", newPrefix)
-		}
-		if !renameYesFlag {
-			fmt.Printf("Are you sure you want to rename wallet '%s' to '%s'? [y/N]: ", oldPrefix, newPrefix)
-			reader := bufio.NewReader(os.Stdin)
-			answer, _ := reader.ReadString('\n')
-			answer = strings.TrimSpace(strings.ToLower(answer))
-			if answer != "y" && answer != "yes" {
-				fmt.Println("Cancelled.")
-				return nil
+		return errors.WrapCommand(func() error {
+			if err := checkVaultStatus(); err != nil {
+				return err
 			}
-		}
-		v[newPrefix] = v[oldPrefix]
-		delete(v, oldPrefix)
-		if err := vault.SaveVault(activeVault, v); err != nil {
-			return err
-		}
-		fmt.Printf("Wallet '%s' renamed to '%s'.\n", oldPrefix, newPrefix)
-		return nil
+
+			oldPrefix := args[0]
+			newPrefix := args[1]
+			activeVault, err := config.GetActiveVault()
+			if err != nil {
+				return err
+			}
+			
+			v, err := vault.LoadVault(activeVault)
+			if err != nil {
+				return errors.NewVaultLoadError(activeVault.KeyFile, err)
+			}
+			
+			// Ensure vault secrets are cleared when function exits
+			defer func() {
+				for _, wallet := range v {
+					wallet.Clear()
+				}
+			}()
+			
+			if _, exists := v[oldPrefix]; !exists {
+				return errors.NewWalletNotFoundError(oldPrefix, config.Cfg.ActiveVault)
+			}
+
+			// Validate the new prefix
+			if err := actions.ValidatePrefix(newPrefix); err != nil {
+				return errors.NewInvalidPrefixError(newPrefix, err.Error())
+			}
+
+			if _, exists := v[newPrefix]; exists {
+				return errors.NewWalletExistsError(newPrefix)
+			}
+			
+			if !renameYesFlag {
+				fmt.Printf("Are you sure you want to rename wallet '%s' to '%s'? [y/N]: ", oldPrefix, newPrefix)
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer != "y" && answer != "yes" {
+					fmt.Println("Cancelled.")
+					return nil
+				}
+			}
+			
+			v[newPrefix] = v[oldPrefix]
+			delete(v, oldPrefix)
+			
+			if err := vault.SaveVault(activeVault, v); err != nil {
+				return errors.NewVaultSaveError(activeVault.KeyFile, err)
+			}
+			
+			fmt.Printf("Wallet '%s' renamed to '%s'.\n", oldPrefix, newPrefix)
+			return nil
+		})
 	},
 }
 

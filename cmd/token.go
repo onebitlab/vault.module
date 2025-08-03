@@ -4,11 +4,11 @@ package cmd
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"vault.module/internal/colors"
 	"vault.module/internal/config"
+	"vault.module/internal/errors"
 
 	"github.com/spf13/cobra"
 )
@@ -25,13 +25,12 @@ Examples:
   vault.module token
 `,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
-			))
-		}
-		return cmd.Help()
+		return errors.WrapCommand(func() error {
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("token")
+			}
+			return cmd.Help()
+		})
 	},
 }
 
@@ -39,38 +38,31 @@ var tokenGenerateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "Generates and saves a new token.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
-			))
-		}
+		return errors.WrapCommand(func() error {
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("token generate")
+			}
 
-		// Generate 32 random bytes
-		bytes := make([]byte, 32)
-		if _, err := rand.Read(bytes); err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to generate token: %s", err.Error()),
-				colors.Error,
-			))
-		}
-		token := hex.EncodeToString(bytes)
+			// Generate 32 random bytes
+			bytes := make([]byte, 32)
+			if _, err := rand.Read(bytes); err != nil {
+				return errors.NewInvalidInputError("", fmt.Sprintf("failed to generate token: %s", err.Error()))
+			}
+			token := hex.EncodeToString(bytes)
 
-		config.Cfg.AuthToken = token
-		if err := config.SaveConfig(); err != nil {
-			return errors.New(colors.SafeColor(
-				fmt.Sprintf("failed to save configuration: %s", err.Error()),
-				colors.Error,
-			))
-		}
+			config.Cfg.AuthToken = token
+			if err := config.SaveConfig(); err != nil {
+				return errors.NewConfigSaveError("config.json", err)
+			}
 
-		fmt.Println(colors.SafeColor(
-			"New token successfully generated and saved.",
-			colors.Success,
-		))
-		fmt.Println("   Use it to authenticate your bots and scripts:")
-		fmt.Printf("   %s\n", colors.SafeColor(token, colors.Cyan))
-		return nil
+			fmt.Println(colors.SafeColor(
+				"New token successfully generated and saved.",
+				colors.Success,
+			))
+			fmt.Println("   Use it to authenticate your bots and scripts:")
+			fmt.Printf("   %s\n", colors.SafeColor(token, colors.Cyan))
+			return nil
+		})
 	},
 }
 
@@ -78,22 +70,21 @@ var tokenShowCmd = &cobra.Command{
 	Use:   "show",
 	Short: "Shows the current token.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if programmaticMode {
-			return errors.New(colors.SafeColor(
-				"this command is not available in programmatic mode",
-				colors.Error,
-			))
-		}
+		return errors.WrapCommand(func() error {
+			if programmaticMode {
+				return errors.NewProgrammaticModeError("token show")
+			}
 
-		if config.Cfg.AuthToken == "" {
-			fmt.Println(colors.SafeColor(
-				"Token has not been generated yet. Use 'token generate'.",
-				colors.Info,
-			))
+			if config.Cfg.AuthToken == "" {
+				fmt.Println(colors.SafeColor(
+					"Token has not been generated yet. Use 'token generate'.",
+					colors.Info,
+				))
+				return nil
+			}
+			fmt.Println(config.Cfg.AuthToken)
 			return nil
-		}
-		fmt.Println(config.Cfg.AuthToken)
-		return nil
+		})
 	},
 }
 

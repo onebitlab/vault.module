@@ -11,26 +11,29 @@ import (
     "golang.org/x/term"
     "vault.module/internal/colors"
     "vault.module/internal/config"
+    "vault.module/internal/errors"
 )
 
 func checkVaultStatus() error {
     if config.Cfg.ActiveVault == "" {
-        return fmt.Errorf("no active vault is set. Use 'vault.module vaults use <name>' to set one")
+        return errors.NewActiveVaultNotSetError()
     }
     
     activeVault, exists := config.Cfg.Vaults[config.Cfg.ActiveVault]
     if !exists {
-        return fmt.Errorf("active vault '%s' not found in configuration", config.Cfg.ActiveVault)
+        return errors.NewVaultNotFoundError(config.Cfg.ActiveVault)
     }
     
-    // Проверяем существование файлов
+    // Check file existence
     if _, err := os.Stat(activeVault.KeyFile); os.IsNotExist(err) {
-        return fmt.Errorf("vault key file not found: %s", activeVault.KeyFile)
+        return errors.NewFileSystemError("access", activeVault.KeyFile, err).
+            WithDetails("vault key file not found")
     }
     
     if activeVault.Encryption == "yubikey" && activeVault.RecipientsFile != "" {
         if _, err := os.Stat(activeVault.RecipientsFile); os.IsNotExist(err) {
-            return fmt.Errorf("recipients file not found: %s", activeVault.RecipientsFile)
+            return errors.NewFileSystemError("access", activeVault.RecipientsFile, err).
+                WithDetails("recipients file not found")
         }
     }
     
@@ -42,7 +45,7 @@ func askForInput(prompt string) (string, error) {
     reader := bufio.NewReader(os.Stdin)
     input, err := reader.ReadString('\n')
     if err != nil {
-        return "", err
+        return "", errors.NewInvalidInputError("console input", "failed to read from stdin")
     }
     return strings.TrimSpace(input), nil
 }
@@ -52,9 +55,9 @@ func askForSecretInput(prompt string) (string, error) {
     
     bytePassword, err := term.ReadPassword(int(syscall.Stdin))
     if err != nil {
-        return "", err
+        return "", errors.NewInvalidInputError("secret input", "failed to read password from stdin")
     }
-    fmt.Println() // Новая строка после ввода пароля
+    fmt.Println() // New line after password input
     
     return string(bytePassword), nil
 }
