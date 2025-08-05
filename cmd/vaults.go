@@ -21,32 +21,6 @@ import (
 var keyFile, recipientsFile, vaultType string
 var vaultsDeleteYesFlag bool
 
-// validateAndCleanPath validates and cleans the file path
-func validateAndCleanPath(path string) (string, error) {
-	if path == "" {
-		return "", errors.NewInvalidInputError(path, "path cannot be empty")
-	}
-
-	// Clean the path from extra characters
-	cleanPath := filepath.Clean(path)
-
-	// Check that the path doesn't contain suspicious characters
-	if strings.Contains(cleanPath, "..") {
-		return "", errors.NewInvalidInputError(path, "path contains invalid characters")
-	}
-
-	// Check that the path is not an absolute path to system directories
-	if filepath.IsAbs(cleanPath) {
-		// Check that the path doesn't point to system directories
-		base := filepath.Base(cleanPath)
-		if base == "" || base == "." || base == ".." {
-			return "", errors.NewInvalidInputError(path, "invalid path")
-		}
-	}
-
-	return cleanPath, nil
-}
-
 // vaultsCmd represents the base command for vault management.
 var vaultsCmd = &cobra.Command{
 	Use:   "vaults",
@@ -139,27 +113,25 @@ Examples:
 			// Normalize vault type to lowercase
 			normalizedVaultType := strings.ToLower(strings.TrimSpace(vaultType))
 
-			// Validate and clean file paths
-			cleanKeyFile, err := validateAndCleanPath(keyFile)
+			// Validate file paths using secure validation
+			if err := config.ValidateFilePath(keyFile, "keyfile"); err != nil {
+				return errors.NewVaultInvalidPathError(keyFile, fmt.Errorf("keyfile validation failed: %w", err))
+			}
+
+			absKeyFile, err := filepath.Abs(filepath.Clean(keyFile))
 			if err != nil {
 				return errors.NewVaultInvalidPathError(keyFile, err)
 			}
 
-			absKeyFile, err := filepath.Abs(cleanKeyFile)
-			if err != nil {
-				return errors.NewVaultInvalidPathError(cleanKeyFile, err)
-			}
-
 			var absRecipientsFile string
 			if recipientsFile != "" {
-				cleanRecipientsFile, err := validateAndCleanPath(recipientsFile)
-				if err != nil {
-					return errors.NewVaultInvalidPathError(recipientsFile, err)
+				if err := config.ValidateFilePath(recipientsFile, "recipients file"); err != nil {
+					return errors.NewVaultInvalidPathError(recipientsFile, fmt.Errorf("recipients file validation failed: %w", err))
 				}
 
-				absRecipientsFile, err = filepath.Abs(cleanRecipientsFile)
+				absRecipientsFile, err = filepath.Abs(filepath.Clean(recipientsFile))
 				if err != nil {
-					return errors.NewVaultInvalidPathError(cleanRecipientsFile, err)
+					return errors.NewVaultInvalidPathError(recipientsFile, err)
 				}
 			}
 

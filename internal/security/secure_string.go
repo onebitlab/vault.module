@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	mathrand "math/rand"
 	"sync"
 	"time"
 )
@@ -43,11 +42,7 @@ func NewSecureString(value string) *SecureString {
 	
 	// Generate cryptographically secure random pad
 	if _, err := rand.Read(pad); err != nil {
-		// Fallback to math/rand for less secure but functional approach
-		r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
-		for i := range pad {
-			pad[i] = byte(r.Intn(256))
-		}
+		panic(fmt.Sprintf("CRITICAL: failed to get random data for SecureString: %v", err))
 	}
 	
 	// XOR encrypt the data
@@ -264,11 +259,7 @@ func (s *SecureString) UnmarshalJSON(data []byte) error {
 	
 	// Generate cryptographically secure random pad
 	if _, err := rand.Read(pad); err != nil {
-		// Fallback approach
-		r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
-		for i := range pad {
-			pad[i] = byte(r.Intn(256))
-		}
+		panic(fmt.Sprintf("CRITICAL: failed to get random data for SecureString: %v", err))
 	}
 	
 	// XOR encrypt the data

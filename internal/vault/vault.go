@@ -502,14 +502,9 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			stderrContent = "stderr output not available"
 		}
 		
-		// For YubiKey encryption, provide more specific error handling
+		// For YubiKey encryption, use ParseYubiKeyError for all errors
 		if details.Encryption == constants.EncryptionYubiKey {
-			// Check if this is a YubiKey-related error during decryption
-			if strings.Contains(strings.ToLower(stderrContent), "yubikey") || 
-			   strings.Contains(strings.ToLower(stderrContent), "pin") ||
-			   strings.Contains(strings.ToLower(stderrContent), "authentication") {
-				return nil, errors.ParseYubiKeyError(err, stderrContent)
-			}
+			return nil, errors.ParseYubiKeyError(err, stderrContent)
 		}
 		
 		audit.Logger.Error("Failed to decrypt vault",
