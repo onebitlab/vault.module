@@ -103,24 +103,24 @@ func GetManager() *GracefulShutdownManager {
 // newManager creates a new shutdown manager
 func newManager() *GracefulShutdownManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	manager := &GracefulShutdownManager{
 		resources: make([]CleanupResource, 0),
 		ctx:       ctx,
 		cancel:    cancel,
 		signals:   make(chan os.Signal, 1),
 	}
-	
+
 	// Register signal handlers
-	signal.Notify(manager.signals, 
+	signal.Notify(manager.signals,
 		syscall.SIGINT,  // Ctrl+C
 		syscall.SIGTERM, // Termination request
 		syscall.SIGQUIT, // Quit request
 	)
-	
+
 	// Start signal monitoring goroutine
 	go manager.signalHandler()
-	
+
 	return manager
 }
 
@@ -142,10 +142,10 @@ func (m *GracefulShutdownManager) RegisterSecureString(secureStr interface{}, de
 	if secureStr == nil {
 		return
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.isShutdown {
 		// Already shutting down, clean immediately
 		if clearable, ok := secureStr.(interface{ Clear() }); ok {
@@ -153,12 +153,12 @@ func (m *GracefulShutdownManager) RegisterSecureString(secureStr interface{}, de
 		}
 		return
 	}
-	
+
 	resource := &SecureStringResource{
 		secureStr:   secureStr,
 		description: description,
 	}
-	
+
 	m.resources = append(m.resources, resource)
 }
 
@@ -167,21 +167,21 @@ func (m *GracefulShutdownManager) RegisterTempFile(filePath string, description 
 	if filePath == "" {
 		return
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.isShutdown {
-	// Already shutting down, clean immediately
-	secureFileDeleteFunc(filePath)
-	return
+		// Already shutting down, clean immediately
+		secureFileDeleteFunc(filePath)
+		return
 	}
-	
+
 	resource := &TempFileResource{
 		filePath:    filePath,
 		description: description,
 	}
-	
+
 	m.resources = append(m.resources, resource)
 }
 
@@ -189,17 +189,17 @@ func (m *GracefulShutdownManager) RegisterTempFile(filePath string, description 
 func (m *GracefulShutdownManager) RegisterClipboard(description string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.isShutdown {
-	// Already shutting down, clean immediately
-	clearClipboardFunc()
-	return
+		// Already shutting down, clean immediately
+		clearClipboardFunc()
+		return
 	}
-	
+
 	resource := &ClipboardResource{
 		description: description,
 	}
-	
+
 	m.resources = append(m.resources, resource)
 }
 
@@ -208,16 +208,16 @@ func (m *GracefulShutdownManager) RegisterCustomResource(resource CleanupResourc
 	if resource == nil {
 		return
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.isShutdown {
 		// Already shutting down, clean immediately
 		resource.Cleanup()
 		return
 	}
-	
+
 	m.resources = append(m.resources, resource)
 }
 
@@ -227,10 +227,10 @@ func (m *GracefulShutdownManager) UnregisterSecureString(secureStr interface{}) 
 	if secureStr == nil {
 		return
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Find and remove the resource
 	for i, resource := range m.resources {
 		if ssResource, ok := resource.(*SecureStringResource); ok {
@@ -249,19 +249,19 @@ func (m *GracefulShutdownManager) Shutdown() {
 		m.mu.Lock()
 		m.isShutdown = true
 		m.mu.Unlock()
-		
+
 		fmt.Fprintln(os.Stderr, "Cleaning up sensitive resources...")
-		
+
 		// Create a timeout context for cleanup
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		
+
 		// Cleanup all resources concurrently with timeout
 		m.cleanupResources(cleanupCtx)
-		
+
 		// Cancel the main context
 		m.cancel()
-		
+
 		fmt.Fprintln(os.Stderr, "Graceful shutdown completed.")
 	})
 }
@@ -272,21 +272,21 @@ func (m *GracefulShutdownManager) cleanupResources(ctx context.Context) {
 	resources := make([]CleanupResource, len(m.resources))
 	copy(resources, m.resources)
 	m.mu.RUnlock()
-	
+
 	if len(resources) == 0 {
 		return
 	}
-	
+
 	// Create a worker pool for concurrent cleanup
 	const maxWorkers = 10
 	workers := len(resources)
 	if workers > maxWorkers {
 		workers = maxWorkers
 	}
-	
+
 	resourceChan := make(chan CleanupResource, len(resources))
 	resultChan := make(chan error, len(resources))
-	
+
 	// Start workers
 	for i := 0; i < workers; i++ {
 		go func() {
@@ -305,7 +305,7 @@ func (m *GracefulShutdownManager) cleanupResources(ctx context.Context) {
 			}
 		}()
 	}
-	
+
 	// Send resources to workers
 	go func() {
 		defer close(resourceChan)
@@ -317,7 +317,7 @@ func (m *GracefulShutdownManager) cleanupResources(ctx context.Context) {
 			}
 		}
 	}()
-	
+
 	// Collect results
 	cleanupErrors := make([]error, 0)
 	for i := 0; i < len(resources); i++ {
@@ -329,16 +329,16 @@ func (m *GracefulShutdownManager) cleanupResources(ctx context.Context) {
 			}
 		case <-ctx.Done():
 			fmt.Fprintf(os.Stderr, "Cleanup timeout reached, forcing exit\n")
-			break
+			return
 		}
 	}
-	
+
 	if len(cleanupErrors) > 0 {
 		fmt.Fprintf(os.Stderr, "Completed cleanup with %d errors\n", len(cleanupErrors))
 	} else {
 		fmt.Fprintf(os.Stderr, "All resources cleaned successfully\n")
 	}
-	
+
 	// Clear the resources list
 	m.mu.Lock()
 	m.resources = m.resources[:0]
@@ -364,7 +364,7 @@ func (m *GracefulShutdownManager) Context() context.Context {
 	return m.ctx
 }
 
-// ForceShutdown performs immediate shutdown without cleanup (emergency use only)  
+// ForceShutdown performs immediate shutdown without cleanup (emergency use only)
 func (m *GracefulShutdownManager) ForceShutdown() {
 	m.cancel()
 	os.Exit(1)
