@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
-	"time"
 )
 
 // SecureZero is the public version of secureZero for external use
@@ -17,13 +16,13 @@ func SecureZero(data []byte) {
 // SecureString provides a secure way to store sensitive strings in memory
 // with XOR encryption and platform-specific memory locking
 type SecureString struct {
-	data         []byte      // XOR encrypted data
-	pad          []byte      // XOR pad for encryption
-	locked       bool        // Track if memory is locked
-	cleared      bool        // Track if already cleared
-	mu           sync.RWMutex // Protect concurrent access
-	description  string      // Description for cleanup tracking
-	registeredForCleanup bool // Track if registered with shutdown manager
+	data                 []byte       // XOR encrypted data
+	pad                  []byte       // XOR pad for encryption
+	locked               bool         // Track if memory is locked
+	cleared              bool         // Track if already cleared
+	mu                   sync.RWMutex // Protect concurrent access
+	description          string       // Description for cleanup tracking
+	registeredForCleanup bool         // Track if registered with shutdown manager
 }
 
 // NewSecureString creates a new SecureString with the given value
@@ -31,41 +30,41 @@ func NewSecureString(value string) *SecureString {
 	if value == "" {
 		return &SecureString{cleared: false}
 	}
-	
+
 	// Check for oversized strings to prevent memory exhaustion
 	if len(value) > 1024*1024 { // 1MB limit
 		panic("SecureString: value too large")
 	}
-	
+
 	data := []byte(value)
 	pad := make([]byte, len(data))
-	
+
 	// Generate cryptographically secure random pad
 	if _, err := rand.Read(pad); err != nil {
 		panic(fmt.Sprintf("CRITICAL: failed to get random data for SecureString: %v", err))
 	}
-	
+
 	// XOR encrypt the data
 	encrypted := make([]byte, len(data))
 	for i := range data {
 		encrypted[i] = data[i] ^ pad[i]
 	}
-	
+
 	// Securely clear the original data
 	secureZero(data)
-	
+
 	s := &SecureString{
 		data:    encrypted,
 		pad:     pad,
 		cleared: false,
 	}
-	
+
 	// Lock memory AFTER data is ready but BEFORE storing sensitive data
 	if err := s.lockMemory(); err != nil {
 		// If locking fails, continue but log warning (implement logging later)
 		// In production, you might want to fail here for maximum security
 	}
-	
+
 	return s
 }
 
@@ -85,7 +84,7 @@ func (s *SecureString) RegisterForCleanup(description string) {
 		s.description = description
 		s.registeredForCleanup = true
 		s.mu.Unlock()
-		
+
 		// Use dependency injection to register with resource manager
 		if manager := GetResourceManager(); manager != nil {
 			manager.RegisterSecureString(s, description)
@@ -99,7 +98,7 @@ func (s *SecureString) UnregisterFromCleanup() {
 		s.mu.Lock()
 		s.registeredForCleanup = false
 		s.mu.Unlock()
-		
+
 		// Use dependency injection to unregister from resource manager
 		if manager := GetResourceManager(); manager != nil {
 			manager.UnregisterSecureString(s)
@@ -112,23 +111,23 @@ func (s *SecureString) UnregisterFromCleanup() {
 func (s *SecureString) String() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return ""
 	}
-	
+
 	// Decrypt XOR data into temporary buffer
 	decrypted := make([]byte, len(s.data))
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	// Convert to string
 	result := string(decrypted)
-	
+
 	// Immediately clear temporary buffer
 	secureZero(decrypted)
-	
+
 	return result
 }
 
@@ -137,19 +136,19 @@ func (s *SecureString) String() string {
 func (s *SecureString) WithValue(fn func(string) error) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return fn("")
 	}
-	
+
 	// Decrypt XOR data into temporary buffer
 	decrypted := make([]byte, len(s.data))
 	defer secureZero(decrypted) // Ensure cleanup
-	
+
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	// Execute function with string value
 	return fn(string(decrypted))
 }
@@ -159,19 +158,19 @@ func (s *SecureString) WithValue(fn func(string) error) error {
 func (s *SecureString) WithSecureOperation(fn func([]byte) error) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return fn(nil)
 	}
-	
+
 	// Decrypt to temporary buffer
 	decrypted := make([]byte, len(s.data))
 	defer secureZero(decrypted)
-	
+
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	return fn(decrypted)
 }
 
@@ -191,19 +190,19 @@ func (s *SecureString) GetHint() string {
 func (s *SecureString) WithValueSync(fn func(string) string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return fn("")
 	}
-	
+
 	// Decrypt XOR data into temporary buffer
 	decrypted := make([]byte, len(s.data))
 	defer secureZero(decrypted) // Ensure cleanup
-	
+
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	// Execute function with string value
 	return fn(string(decrypted))
 }
@@ -212,26 +211,26 @@ func (s *SecureString) WithValueSync(fn func(string) string) string {
 func (s *SecureString) MarshalJSON() ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return json.Marshal("")
 	}
-	
+
 	// Use WithValue pattern to minimize exposure time
 	var result []byte
 	var err error
-	
+
 	// Decrypt into temporary buffer
 	decrypted := make([]byte, len(s.data))
 	defer secureZero(decrypted) // Ensure cleanup
-	
+
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	// Marshal to JSON
 	result, err = json.Marshal(string(decrypted))
-	
+
 	return result, err
 }
 
@@ -239,47 +238,47 @@ func (s *SecureString) MarshalJSON() ([]byte, error) {
 func (s *SecureString) UnmarshalJSON(data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Clear existing data first
 	s.clearUnsafe()
-	
+
 	var str string
 	if err := json.Unmarshal(data, &str); err != nil {
 		return err
 	}
-	
+
 	if str == "" {
 		s.cleared = false
 		return nil
 	}
-	
+
 	// Create new encrypted data
 	dataBytes := []byte(str)
 	pad := make([]byte, len(dataBytes))
-	
+
 	// Generate cryptographically secure random pad
 	if _, err := rand.Read(pad); err != nil {
 		panic(fmt.Sprintf("CRITICAL: failed to get random data for SecureString: %v", err))
 	}
-	
+
 	// XOR encrypt the data
 	encrypted := make([]byte, len(dataBytes))
 	for i := range dataBytes {
 		encrypted[i] = dataBytes[i] ^ pad[i]
 	}
-	
+
 	// Securely clear the original data
 	secureZero(dataBytes)
-	
+
 	s.data = encrypted
 	s.pad = pad
 	s.cleared = false
-	
+
 	// Lock the new memory
 	if err := s.lockMemory(); err != nil {
 		// Continue but note the error
 	}
-	
+
 	return nil
 }
 
@@ -295,28 +294,30 @@ func (s *SecureString) clearUnsafe() {
 	if s.cleared {
 		return
 	}
-	
+
 	// Unregister from cleanup first
 	if s.registeredForCleanup {
 		s.registeredForCleanup = false
 		// Note: We don't call UnregisterFromCleanup here to avoid deadlock
 		// The shutdown manager will handle dangling references gracefully
 	}
-	
-	// Unlock memory before clearing
-	s.unlockMemory()
-	
+
+	// Unlock memory before clearing and handle potential errors
+	if err := s.unlockMemory(); err != nil {
+		panic(fmt.Sprintf("CRITICAL: failed to unlock memory for SecureString: %v", err))
+	}
+
 	// Securely overwrite data multiple times
 	if s.data != nil {
 		secureZero(s.data)
 		s.data = nil
 	}
-	
+
 	if s.pad != nil {
 		secureZero(s.pad)
 		s.pad = nil
 	}
-	
+
 	s.cleared = true
 	s.locked = false
 }
@@ -332,7 +333,7 @@ func (s *SecureString) IsCleared() bool {
 func (s *SecureString) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil {
 		return 0
 	}
@@ -350,19 +351,19 @@ func (s *SecureString) IsEmpty() bool {
 func (s *SecureString) Clone() *SecureString {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if s.cleared || s.data == nil || s.pad == nil {
 		return &SecureString{cleared: false}
 	}
-	
+
 	// Create new SecureString with same decrypted value
 	decrypted := make([]byte, len(s.data))
 	defer secureZero(decrypted)
-	
+
 	for i := range s.data {
 		decrypted[i] = s.data[i] ^ s.pad[i]
 	}
-	
+
 	return NewSecureString(string(decrypted))
 }
 

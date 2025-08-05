@@ -13,24 +13,24 @@ func secureZero(data []byte) {
 	if len(data) == 0 {
 		return
 	}
-	
+
 	// Multiple pass overwriting for enhanced security
 	// Pass 1: Random data
 	rand.Read(data)
-	
+
 	// Pass 2: All ones
 	for i := range data {
 		data[i] = 0xFF
 	}
-	
+
 	// Pass 3: All zeros
 	for i := range data {
 		data[i] = 0x00
 	}
-	
+
 	// Pass 4: Random data again
 	rand.Read(data)
-	
+
 	// Pass 5: Final zero
 	for i := range data {
 		data[i] = 0x00
@@ -42,12 +42,12 @@ func (s *SecureString) lockMemory() error {
 	if len(s.data) == 0 {
 		return nil
 	}
-	
+
 	// Lock data pages in memory to prevent swapping
 	if err := syscall.Mlock(s.data); err != nil {
 		return err
 	}
-	
+
 	if len(s.pad) > 0 {
 		if err := syscall.Mlock(s.pad); err != nil {
 			// If locking pad fails, unlock data and return error
@@ -55,25 +55,30 @@ func (s *SecureString) lockMemory() error {
 			return err
 		}
 	}
-	
+
 	s.locked = true
 	return nil
 }
 
-func (s *SecureString) unlockMemory() {
+func (s *SecureString) unlockMemory() error {
 	if !s.locked {
-		return
+		return nil
 	}
-	
+
 	if len(s.data) > 0 {
-		syscall.Munlock(s.data)
+		if err := syscall.Munlock(s.data); err != nil {
+			return err
+		}
 	}
-	
+
 	if len(s.pad) > 0 {
-		syscall.Munlock(s.pad)
+		if err := syscall.Munlock(s.pad); err != nil {
+			return err
+		}
 	}
-	
+
 	s.locked = false
+	return nil
 }
 
 // SecureClearBytes securely clears sensitive data from a byte slice using multiple pass overwriting
