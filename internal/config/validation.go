@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"vault.module/internal/constants"
-	"vault.module/internal/errors" // Убедитесь, что этот импорт есть
+	"vault.module/internal/errors" // Ensure this import is present
 )
 
 // NormalizeVaultType converts vault type to lowercase for case-insensitive comparison
@@ -29,16 +29,16 @@ func ValidateVaultType(vaultType string) error {
 	}
 }
 
-// ValidateConfig проверяет корректность конфигурации
+// ValidateConfig checks the correctness of the configuration
 func ValidateConfig(cfg *Config) error {
-	// Проверяем активный vault
+	// Check active vault
 	if cfg.ActiveVault != "" {
 		if _, exists := cfg.Vaults[cfg.ActiveVault]; !exists {
-			// ИСПРАВЛЕНО: Используем новую ошибку
+			// Use new error type
 			return errors.NewVaultNotFoundError(cfg.ActiveVault)
 		}
 	}
-	// Проверяем каждый vault
+	// Check each vault
 	for name, details := range cfg.Vaults {
 		if err := ValidateVaultDetails(name, details); err != nil {
 			return fmt.Errorf("vault '%s': %w", name, err)
@@ -47,54 +47,54 @@ func ValidateConfig(cfg *Config) error {
 	return nil
 }
 
-// ValidateVaultDetails проверяет детали конкретного vault'а
+// ValidateVaultDetails checks the details of a specific vault
 func ValidateVaultDetails(name string, details VaultDetails) error {
 	if err := ValidateVaultName(name); err != nil {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewConfigValidationError("vault_name", name, err.Error())
 	}
 	if !isValidVaultType(details.Type) {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewConfigValidationError("type", details.Type, "must be one of: "+strings.Join(getAllVaultTypes(), ", "))
 	}
 	if !isValidEncryptionMethod(details.Encryption) {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewConfigValidationError("encryption", details.Encryption, "must be one of: "+strings.Join(getAllEncryptionMethods(), ", "))
 	}
 	if details.KeyFile == "" {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewConfigValidationError("keyfile", "", "cannot be empty")
 	}
 
 	// Enhanced keyfile validation with symlink checking
 	if err := ValidateFilePath(details.KeyFile, "keyfile"); err != nil {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewVaultInvalidPathError(details.KeyFile, err)
 	}
 
 	// Validate keyfile directory with enhanced security
 	keyDir := filepath.Dir(details.KeyFile)
 	if err := ValidateDirectoryPath(keyDir, "keyfile directory"); err != nil {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Use new error type
 		return errors.NewVaultInvalidPathError(keyDir, err)
 	}
 
 	// Enhanced recipients file validation for YubiKey encryption
 	if details.Encryption == constants.EncryptionYubiKey {
 		if details.RecipientsFile == "" {
-			// ИСПРАВЛЕНО: Используем новую ошибку
+			// Use new error type
 			return errors.NewConfigValidationError("recipients_file", "", "required for yubikey encryption")
 		}
 
 		if err := ValidateFilePath(details.RecipientsFile, "recipients file"); err != nil {
-			// ИСПРАВЛЕНО: Используем новую ошибку
+			// Use new error type
 			return errors.NewVaultInvalidPathError(details.RecipientsFile, err)
 		}
 	}
 	return nil
 }
 
-// ValidateVaultName проверяет имя vault'а на корректность
+// ValidateVaultName checks the validity of a vault name
 func ValidateVaultName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -314,11 +314,11 @@ func validateDirectoryAccess(dirPath, description string) error {
 
 func LoadConfigWithValidation() error {
 	if err := LoadConfig(); err != nil {
-		// ИСПРАВЛЕНО: Используем новую ошибку
+		// Wrap validation error
 		return errors.NewConfigLoadError("config.json", err)
 	}
 	if err := ValidateConfig(&Cfg); err != nil {
-		// Оборачиваем ошибку валидации
+		// Wrap validation error
 		return fmt.Errorf("configuration validation failed: %w", err)
 	}
 	return nil

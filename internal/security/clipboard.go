@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
 	"vault.module/internal/config"
 )
 
@@ -26,7 +27,7 @@ func (c *Clipboard) WriteAllWithCustomTimeout(data string, timeoutSeconds int) e
 		return err
 	}
 
-	// Создаём независимый процесс для очистки clipboard
+	// Create a detached process for clipboard clearing
 	switch runtime.GOOS {
 	case "darwin":
 		return c.scheduleMacOSClipboardClear(timeoutSeconds)
@@ -35,7 +36,7 @@ func (c *Clipboard) WriteAllWithCustomTimeout(data string, timeoutSeconds int) e
 	case "windows":
 		return c.scheduleWindowsClipboardClear(timeoutSeconds)
 	default:
-		// Fallback к горутине для неподдерживаемых платформ
+		// Fallback to goroutine for unsupported platforms
 		go func() {
 			time.Sleep(time.Duration(timeoutSeconds) * time.Second)
 			c.clearClipboard()
@@ -46,12 +47,12 @@ func (c *Clipboard) WriteAllWithCustomTimeout(data string, timeoutSeconds int) e
 }
 
 func (c *Clipboard) scheduleMacOSClipboardClear(timeoutSeconds int) error {
-	// Используем nohup для создания независимого процесса
+	// Use nohup to create a detached process
 	script := fmt.Sprintf("sleep %d && echo '' | pbcopy", timeoutSeconds)
 	cmd := exec.Command("nohup", "sh", "-c", script)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	return cmd.Start() // Start(), не Run() - чтобы не ждать завершения
+	return cmd.Start() // Start(), not Run() - do not wait for completion
 }
 
 func (c *Clipboard) scheduleLinuxClipboardClear(timeoutSeconds int) error {
@@ -63,7 +64,7 @@ func (c *Clipboard) scheduleLinuxClipboardClear(timeoutSeconds int) error {
 	} else {
 		return fmt.Errorf("no clipboard utility found")
 	}
-	
+
 	cmd := exec.Command("nohup", "sh", "-c", script)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
@@ -71,7 +72,7 @@ func (c *Clipboard) scheduleLinuxClipboardClear(timeoutSeconds int) error {
 }
 
 func (c *Clipboard) scheduleWindowsClipboardClear(timeoutSeconds int) error {
-	// Для Windows используем timeout и start /B для фонового процесса
+	// For Windows, use timeout and start /B for background process
 	script := fmt.Sprintf("timeout %d >nul && echo. | clip", timeoutSeconds)
 	cmd := exec.Command("cmd", "/C", "start", "/B", script)
 	return cmd.Start()
@@ -84,13 +85,13 @@ func (c *Clipboard) writeToClipboard(data string) error {
 		cmd.Stdin = strings.NewReader(data)
 		return cmd.Run()
 	case "linux":
-		// Пробуем xclip
+		// Try xclip
 		if _, err := exec.LookPath("xclip"); err == nil {
 			cmd := exec.Command("xclip", "-selection", "clipboard")
 			cmd.Stdin = strings.NewReader(data)
 			return cmd.Run()
 		}
-		// Пробуем xsel
+		// Try xsel
 		if _, err := exec.LookPath("xsel"); err == nil {
 			cmd := exec.Command("xsel", "--clipboard", "--input")
 			cmd.Stdin = strings.NewReader(data)
@@ -107,15 +108,15 @@ func (c *Clipboard) writeToClipboard(data string) error {
 }
 
 func (c *Clipboard) clearClipboard() error {
-	// Очищаем clipboard, записывая пустую строку
+	// Clear clipboard by writing an empty string
 	if err := c.writeToClipboard(""); err != nil {
-		// Если очистка не удалась, попробуем записать пробел
+		// If clearing failed, try writing a space
 		return c.writeToClipboard(" ")
 	}
 	return nil
 }
 
-// Стандартная функция для совместимости
+// Standard function for compatibility
 func CopyToClipboard(data string) error {
 	return GetClipboard().WriteAllWithCustomTimeout(data, config.GetClipboardTimeout())
 }
@@ -130,7 +131,6 @@ func CopyToClipboardWithAutoCleanup(data string, description string) error {
 	// Register clipboard for cleanup before copying
 	// Note: Import shutdown package when this is used
 	// shutdown.RegisterClipboardGlobal(description)
-	
+
 	return CopyToClipboard(data)
 }
-

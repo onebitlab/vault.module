@@ -1,4 +1,4 @@
-// internal/security/secure_string.go - Полная интегрированная версия
+// internal/security/secure_string.go - Full integrated version
 package security
 
 import (
