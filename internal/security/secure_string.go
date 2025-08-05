@@ -85,8 +85,8 @@ func (s *SecureString) RegisterForCleanup(description string) {
 		s.registeredForCleanup = true
 		s.mu.Unlock()
 
-		// Use dependency injection to register with resource manager
-		if manager := GetResourceManager(); manager != nil {
+		// Register with shutdown manager
+		if manager := GetManager(); manager != nil {
 			manager.RegisterSecureString(s, description)
 		}
 	}
@@ -99,8 +99,8 @@ func (s *SecureString) UnregisterFromCleanup() {
 		s.registeredForCleanup = false
 		s.mu.Unlock()
 
-		// Use dependency injection to unregister from resource manager
-		if manager := GetResourceManager(); manager != nil {
+		// Unregister from shutdown manager
+		if manager := GetManager(); manager != nil {
 			manager.UnregisterSecureString(s)
 		}
 	}

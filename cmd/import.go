@@ -10,7 +10,7 @@ import (
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
 	"vault.module/internal/errors"
-	"vault.module/internal/shutdown"
+	"vault.module/internal/security"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -36,18 +36,18 @@ Examples:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-	return errors.WrapCommand(func() error {
-	// Check vault status before executing the command
-	if err := checkVaultStatus(); err != nil {
-	return err
-	}
+		return errors.WrapCommand(func() error {
+			// Check vault status before executing the command
+			if err := checkVaultStatus(); err != nil {
+				return err
+			}
 
-	// Check if shutdown is in progress
-				if shutdown.IsShuttingDown() {
-					return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
-				}
+			// Check if shutdown is in progress
+			if security.IsShuttingDown() {
+				return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
+			}
 
-				activeVault, err := config.GetActiveVault()
+			activeVault, err := config.GetActiveVault()
 			if err != nil {
 				return err
 			}
@@ -55,19 +55,19 @@ Examples:
 			if programmaticMode {
 				return errors.NewProgrammaticModeError("import")
 			}
-			
+
 			filePath := args[0]
 
-		fmt.Println(colors.SafeColor(
-			fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
-			colors.Info,
-		))
+			fmt.Println(colors.SafeColor(
+				fmt.Sprintf("Active Vault: %s (Type: %s)", config.Cfg.ActiveVault, activeVault.Type),
+				colors.Info,
+			))
 
 			v, err := vault.LoadVault(activeVault)
 			if err != nil {
 				return errors.NewVaultLoadError(activeVault.KeyFile, err)
 			}
-			
+
 			// Ensure vault secrets are cleared when function exits
 			defer func() {
 				for _, wallet := range v {
@@ -82,7 +82,7 @@ Examples:
 
 			// Register file content for secure cleanup if it contains sensitive data
 			if len(content) > 0 {
-				shutdown.RegisterTempFileGlobal(filePath, fmt.Sprintf("import file: %s", filePath))
+				security.RegisterTempFileGlobal(filePath, fmt.Sprintf("import file: %s", filePath))
 			}
 
 			// Pass the vault type to the action to use the correct key manager.

@@ -12,7 +12,6 @@ import (
 	"vault.module/internal/config"
 	"vault.module/internal/errors"
 	"vault.module/internal/security"
-	"vault.module/internal/shutdown"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -49,21 +48,21 @@ Examples:
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-	return errors.WrapCommand(func() error {
-	// Validate input parameters
-	if err := validateGetCommandInputs(); err != nil {
-	return err
-	}
-	
-	// Check if shutdown is in progress
-	if shutdown.IsShuttingDown() {
-	return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
-	}
-				
-				// Check vault status before executing the command
-				if err := checkVaultStatus(); err != nil {
-					return err
-				}
+		return errors.WrapCommand(func() error {
+			// Validate input parameters
+			if err := validateGetCommandInputs(); err != nil {
+				return err
+			}
+
+			// Check if shutdown is in progress
+			if security.IsShuttingDown() {
+				return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
+			}
+
+			// Check vault status before executing the command
+			if err := checkVaultStatus(); err != nil {
+				return err
+			}
 
 			activeVault, err := config.GetActiveVault()
 			if err != nil {
@@ -78,7 +77,7 @@ Examples:
 			if err != nil {
 				return errors.NewVaultLoadError(activeVault.KeyFile, err)
 			}
-			
+
 			// Ensure vault secrets are cleared when function exits
 			defer func() {
 				for _, wallet := range v {
@@ -160,8 +159,8 @@ Examples:
 			} else {
 				if isSecret {
 					// Register clipboard for cleanup with shutdown manager
-					shutdown.RegisterClipboardGlobal(fmt.Sprintf("clipboard for %s.%s", prefix, field))
-					
+					security.RegisterClipboardGlobal(fmt.Sprintf("clipboard for %s.%s", prefix, field))
+
 					// Copy to clipboard with configurable timeout
 					if err := security.GetClipboard().WriteAllWithCustomTimeout(result, getClipboardTimeout); err != nil {
 						return errors.NewClipboardError(err)
@@ -205,7 +204,7 @@ func validateGetCommandInputs() error {
 			fmt.Sprintf("clipboard timeout must be at most %d seconds (1 hour)", maxClipboardTimeout),
 		)
 	}
-	
+
 	// Validate address index (must be non-negative)
 	if getIndex < 0 {
 		return errors.NewInvalidInputError(
@@ -213,7 +212,7 @@ func validateGetCommandInputs() error {
 			"address index must be non-negative",
 		)
 	}
-	
+
 	return nil
 }
 
