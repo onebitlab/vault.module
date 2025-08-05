@@ -85,8 +85,3 @@ func (s *SecureString) unlockMemory() error {
 func SecureClearBytes(data []byte) {
 	secureZero(data)
 }
-
-// getPageSize returns the system page size for memory alignment
-func getPageSize() int {
-	return syscall.Getpagesize()
-}

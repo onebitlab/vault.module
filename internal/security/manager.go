@@ -222,14 +222,14 @@ func (m *GracefulShutdownManager) Shutdown() {
 		m.mu.Unlock()
 
 		fmt.Fprintln(os.Stderr, "Cleaning up sensitive resources...")
-		m.cleanupResources(context.Background())
+		m.cleanupResources()
 		m.cancel()
 		fmt.Fprintln(os.Stderr, "Graceful shutdown completed.")
 	})
 }
 
 // cleanupResources очищает все зарегистрированные ресурсы
-func (m *GracefulShutdownManager) cleanupResources(ctx context.Context) {
+func (m *GracefulShutdownManager) cleanupResources() {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, resource := range m.resources {
