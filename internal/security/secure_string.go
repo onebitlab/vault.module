@@ -1,4 +1,4 @@
-// internal/security/secure_string.go
+// internal/security/secure_string.go - Полная интегрированная версия
 package security
 
 import (
@@ -10,14 +10,21 @@ import (
 	"time"
 )
 
+// SecureZero is the public version of secureZero for external use
+func SecureZero(data []byte) {
+	secureZero(data)
+}
+
 // SecureString provides a secure way to store sensitive strings in memory
 // with XOR encryption and platform-specific memory locking
 type SecureString struct {
-	data    []byte      // XOR encrypted data
-	pad     []byte      // XOR pad for encryption
-	locked  bool        // Track if memory is locked
-	cleared bool        // Track if already cleared
-	mu      sync.RWMutex // Protect concurrent access
+	data         []byte      // XOR encrypted data
+	pad          []byte      // XOR pad for encryption
+	locked       bool        // Track if memory is locked
+	cleared      bool        // Track if already cleared
+	mu           sync.RWMutex // Protect concurrent access
+	description  string      // Description for cleanup tracking
+	registeredForCleanup bool // Track if registered with shutdown manager
 }
 
 // NewSecureString creates a new SecureString with the given value
@@ -65,6 +72,44 @@ func NewSecureString(value string) *SecureString {
 	}
 	
 	return s
+}
+
+// NewSecureStringWithRegistration creates a new SecureString and registers it for cleanup
+func NewSecureStringWithRegistration(value string, description string) *SecureString {
+	s := NewSecureString(value)
+	if s != nil && !s.IsEmpty() {
+		s.RegisterForCleanup(description)
+	}
+	return s
+}
+
+// RegisterForCleanup registers this SecureString with the resource manager
+func (s *SecureString) RegisterForCleanup(description string) {
+	if s != nil && !s.IsEmpty() && !s.registeredForCleanup {
+		s.mu.Lock()
+		s.description = description
+		s.registeredForCleanup = true
+		s.mu.Unlock()
+		
+		// Use dependency injection to register with resource manager
+		if manager := GetResourceManager(); manager != nil {
+			manager.RegisterSecureString(s, description)
+		}
+	}
+}
+
+// UnregisterFromCleanup removes this SecureString from the resource manager
+func (s *SecureString) UnregisterFromCleanup() {
+	if s != nil && s.registeredForCleanup {
+		s.mu.Lock()
+		s.registeredForCleanup = false
+		s.mu.Unlock()
+		
+		// Use dependency injection to unregister from resource manager
+		if manager := GetResourceManager(); manager != nil {
+			manager.UnregisterSecureString(s)
+		}
+	}
 }
 
 // String returns the decrypted string value
@@ -260,6 +305,13 @@ func (s *SecureString) clearUnsafe() {
 		return
 	}
 	
+	// Unregister from cleanup first
+	if s.registeredForCleanup {
+		s.registeredForCleanup = false
+		// Note: We don't call UnregisterFromCleanup here to avoid deadlock
+		// The shutdown manager will handle dangling references gracefully
+	}
+	
 	// Unlock memory before clearing
 	s.unlockMemory()
 	
@@ -321,4 +373,18 @@ func (s *SecureString) Clone() *SecureString {
 	}
 	
 	return NewSecureString(string(decrypted))
+}
+
+// GetDescription returns the description used for cleanup tracking
+func (s *SecureString) GetDescription() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.description
+}
+
+// IsRegisteredForCleanup returns true if registered with shutdown manager
+func (s *SecureString) IsRegisteredForCleanup() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.registeredForCleanup
 }

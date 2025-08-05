@@ -10,6 +10,7 @@ import (
 	"vault.module/internal/config"
 	"vault.module/internal/constants"
 	"vault.module/internal/errors"
+	"vault.module/internal/shutdown"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -35,13 +36,18 @@ Examples:
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return errors.WrapCommand(func() error {
-			// Check vault status before executing the command
-			if err := checkVaultStatus(); err != nil {
-				return err
-			}
+	return errors.WrapCommand(func() error {
+	// Check vault status before executing the command
+	if err := checkVaultStatus(); err != nil {
+	return err
+	}
 
-			activeVault, err := config.GetActiveVault()
+	// Check if shutdown is in progress
+				if shutdown.IsShuttingDown() {
+					return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
+				}
+
+				activeVault, err := config.GetActiveVault()
 			if err != nil {
 				return err
 			}
@@ -72,6 +78,11 @@ Examples:
 			content, err := os.ReadFile(filePath)
 			if err != nil {
 				return errors.NewFileSystemError("read", filePath, err)
+			}
+
+			// Register file content for secure cleanup if it contains sensitive data
+			if len(content) > 0 {
+				shutdown.RegisterTempFileGlobal(filePath, fmt.Sprintf("import file: %s", filePath))
 			}
 
 			// Pass the vault type to the action to use the correct key manager.

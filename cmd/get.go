@@ -12,6 +12,7 @@ import (
 	"vault.module/internal/config"
 	"vault.module/internal/errors"
 	"vault.module/internal/security"
+	"vault.module/internal/shutdown"
 	"vault.module/internal/vault"
 
 	"github.com/spf13/cobra"
@@ -48,16 +49,21 @@ Examples:
 `,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return errors.WrapCommand(func() error {
-			// Validate input parameters
-			if err := validateGetCommandInputs(); err != nil {
-				return err
-			}
-			
-			// Check vault status before executing the command
-			if err := checkVaultStatus(); err != nil {
-				return err
-			}
+	return errors.WrapCommand(func() error {
+	// Validate input parameters
+	if err := validateGetCommandInputs(); err != nil {
+	return err
+	}
+	
+	// Check if shutdown is in progress
+	if shutdown.IsShuttingDown() {
+	return errors.New(errors.ErrCodeSystem, "system is shutting down, cannot process new commands")
+	}
+				
+				// Check vault status before executing the command
+				if err := checkVaultStatus(); err != nil {
+					return err
+				}
 
 			activeVault, err := config.GetActiveVault()
 			if err != nil {
@@ -153,6 +159,9 @@ Examples:
 				fmt.Print(result)
 			} else {
 				if isSecret {
+					// Register clipboard for cleanup with shutdown manager
+					shutdown.RegisterClipboardGlobal(fmt.Sprintf("clipboard for %s.%s", prefix, field))
+					
 					// Copy to clipboard with configurable timeout
 					if err := security.GetClipboard().WriteAllWithCustomTimeout(result, getClipboardTimeout); err != nil {
 						return errors.NewClipboardError(err)

@@ -12,6 +12,7 @@ import (
     "vault.module/internal/colors"
     "vault.module/internal/config"
     "vault.module/internal/errors"
+    "vault.module/internal/security"
 )
 
 func checkVaultStatus() error {
@@ -59,7 +60,39 @@ func askForSecretInput(prompt string) (string, error) {
     }
     fmt.Println() // New line after password input
     
-    return string(bytePassword), nil
+    password := string(bytePassword)
+    
+    // Securely clear the original password bytes
+    security.SecureZero(bytePassword)
+    
+    return password, nil
+}
+
+// askForSecretInputWithCleanup asks for secret input and creates a SecureString with auto-cleanup
+func askForSecretInputWithCleanup(prompt string) (string, error) {
+    fmt.Print(colors.SafeColor(prompt+": ", colors.Info))
+    
+    bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+    if err != nil {
+        return "", errors.NewInvalidInputError("secret input", "failed to read password from stdin")
+    }
+    fmt.Println() // New line after password input
+    
+    password := string(bytePassword)
+    
+    // Create SecureString for the input and register for cleanup
+    secureInput := security.NewSecureStringWithRegistration(password, fmt.Sprintf("user input: %s", prompt))
+    defer secureInput.Clear() // Also clear immediately after use
+    
+    // Securely clear the original password bytes
+    security.SecureZero(bytePassword)
+    
+    return secureInput.String(), nil
+}
+
+// createTempFileWithSecureCleanup creates temporary files with cleanup registration
+func createTempFileWithSecureCleanup(pattern string, content []byte, description string) (string, error) {
+    return security.CreateTempFileWithAutoCleanup(pattern, content, description)
 }
 
 func askForConfirmation(prompt string) bool {

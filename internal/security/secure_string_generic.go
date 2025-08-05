@@ -1,64 +1,64 @@
-//go:build !darwin && !windows && !linux
-// +build !darwin,!windows,!linux
+//go:build !darwin
+// +build !darwin
 
-// internal/security/secure_string_generic.go
 package security
 
 import (
 	"crypto/rand"
+	mathrand "math/rand"
+	"time"
 )
 
-// Platform-generic memory locking implementation (fallback)
-func (s *SecureString) lockMemory() error {
-	// Generic platforms don't have memory locking capabilities
-	// This is a no-op but we track the intent
-	s.locked = false
-	return nil
-}
-
-func (s *SecureString) unlockMemory() error {
-	// Generic platforms don't have memory locking capabilities
-	s.locked = false
-	return nil
-}
-
-// SecureClearBytes securely clears sensitive data from a byte slice using multiple pass overwriting
-func SecureClearBytes(data []byte) {
-	secureZero(data)
-}
-
-// secureZero overwrites memory with zeros multiple times for enhanced security
+// secureZero securely overwrites memory with zeros (and random data for added security)
 func secureZero(data []byte) {
 	if len(data) == 0 {
 		return
 	}
 	
-	// Multiple pass overwriting for enhanced security
-	// Pass 1: Random data
-	rand.Read(data)
+	// Multiple passes for secure deletion
+	// Pass 1: All zeros
+	for i := range data {
+		data[i] = 0
+	}
 	
 	// Pass 2: All ones
 	for i := range data {
 		data[i] = 0xFF
 	}
 	
-	// Pass 3: All zeros
-	for i := range data {
-		data[i] = 0x00
+	// Pass 3: Random data
+	if _, err := rand.Read(data); err != nil {
+		// Fallback to math/rand
+		r := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+		for i := range data {
+			data[i] = byte(r.Intn(256))
+		}
 	}
 	
-	// Pass 4: Random data again
-	rand.Read(data)
-	
-	// Pass 5: Final zero
+	// Pass 4: Final zeros
 	for i := range data {
-		data[i] = 0x00
+		data[i] = 0
 	}
 }
 
-// getPageSize returns a default page size for generic platforms
+// Platform-agnostic memory operations (no-op on non-Darwin platforms)
+func (s *SecureString) lockMemory() error {
+	// No platform-specific memory locking available
+	s.locked = false
+	return nil
+}
+
+func (s *SecureString) unlockMemory() {
+	// No platform-specific memory unlocking needed
+	s.locked = false
+}
+
+// SecureClearBytes securely clears sensitive data from a byte slice
+func SecureClearBytes(data []byte) {
+	secureZero(data)
+}
+
+// getPageSize returns a default page size for non-Darwin platforms
 func getPageSize() int {
-	return 4096 // Standard page size fallback
+	return 4096 // Default page size
 }
-
-

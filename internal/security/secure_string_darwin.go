@@ -1,64 +1,12 @@
 //go:build darwin
 // +build darwin
 
-// internal/security/secure_string_darwin.go
 package security
 
 import (
 	"crypto/rand"
 	"syscall"
 )
-
-// Platform-specific memory locking implementation for macOS
-func (s *SecureString) lockMemory() error {
-	if len(s.data) == 0 {
-		return nil
-	}
-	
-	// Lock data pages in memory to prevent swapping
-	if err := syscall.Mlock(s.data); err != nil {
-		return err
-	}
-	
-	if len(s.pad) > 0 {
-		if err := syscall.Mlock(s.pad); err != nil {
-			// If locking pad fails, unlock data and return error
-			syscall.Munlock(s.data)
-			return err
-		}
-	}
-	
-	s.locked = true
-	return nil
-}
-
-func (s *SecureString) unlockMemory() error {
-	if !s.locked {
-		return nil
-	}
-	
-	var unlockErr error
-	
-	if len(s.data) > 0 {
-		if err := syscall.Munlock(s.data); err != nil {
-			unlockErr = err
-		}
-	}
-	
-	if len(s.pad) > 0 {
-		if err := syscall.Munlock(s.pad); err != nil && unlockErr == nil {
-			unlockErr = err
-		}
-	}
-	
-	s.locked = false
-	return unlockErr
-}
-
-// SecureClearBytes securely clears sensitive data from a byte slice using multiple pass overwriting
-func SecureClearBytes(data []byte) {
-	secureZero(data)
-}
 
 // secureZero overwrites memory with zeros multiple times for enhanced security
 func secureZero(data []byte) {
@@ -89,9 +37,51 @@ func secureZero(data []byte) {
 	}
 }
 
+// Platform-specific memory locking implementation for macOS
+func (s *SecureString) lockMemory() error {
+	if len(s.data) == 0 {
+		return nil
+	}
+	
+	// Lock data pages in memory to prevent swapping
+	if err := syscall.Mlock(s.data); err != nil {
+		return err
+	}
+	
+	if len(s.pad) > 0 {
+		if err := syscall.Mlock(s.pad); err != nil {
+			// If locking pad fails, unlock data and return error
+			syscall.Munlock(s.data)
+			return err
+		}
+	}
+	
+	s.locked = true
+	return nil
+}
+
+func (s *SecureString) unlockMemory() {
+	if !s.locked {
+		return
+	}
+	
+	if len(s.data) > 0 {
+		syscall.Munlock(s.data)
+	}
+	
+	if len(s.pad) > 0 {
+		syscall.Munlock(s.pad)
+	}
+	
+	s.locked = false
+}
+
+// SecureClearBytes securely clears sensitive data from a byte slice using multiple pass overwriting
+func SecureClearBytes(data []byte) {
+	secureZero(data)
+}
+
 // getPageSize returns the system page size for memory alignment
 func getPageSize() int {
 	return syscall.Getpagesize()
 }
-
-

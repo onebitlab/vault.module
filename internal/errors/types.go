@@ -44,6 +44,7 @@ const (
 	ErrCodeInvalidMnemonic   ErrorCode = "INVALID_MNEMONIC"
 
 	// System errors
+	ErrCodeSystem            ErrorCode = "SYSTEM_ERROR"
 	ErrCodeFileSystem        ErrorCode = "FILESYSTEM_ERROR"
 	ErrCodePermission        ErrorCode = "PERMISSION_DENIED"
 	ErrCodeDependency        ErrorCode = "DEPENDENCY_MISSING"

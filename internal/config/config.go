@@ -21,6 +21,7 @@ type VaultDetails struct {
 type Config struct {
 	AuthToken           string                  `mapstructure:"authtoken"`
 	YubikeySlot         string                  `mapstructure:"yubikeyslot"`
+	YubikeyTimeout      int                     `mapstructure:"yubikey_timeout"`    // Timeout in seconds for YubiKey operations
 	ActiveVault         string                  `mapstructure:"active_vault"`
 	ClipboardTimeout    int                     `mapstructure:"clipboard_timeout"`    // Timeout in seconds for clipboard clearing
 	Vaults              map[string]VaultDetails `mapstructure:"vaults"`
@@ -51,6 +52,7 @@ func GetActiveVault() (VaultDetails, error) {
 func LoadConfig() error {
 	viper.SetDefault("authtoken", "")
 	viper.SetDefault("yubikeyslot", "")
+	viper.SetDefault("yubikey_timeout", 60) // Default 60 seconds for YubiKey operations
 	viper.SetDefault("active_vault", "")
 	viper.SetDefault("clipboard_timeout", 30) // Default 30 seconds
 	viper.SetDefault("vaults", map[string]VaultDetails{})
@@ -61,6 +63,7 @@ func LoadConfig() error {
 	viper.AutomaticEnv()
 	_ = viper.BindEnv("authtoken", "VAULT_AUTH_TOKEN")
 	_ = viper.BindEnv("yubikeyslot", "VAULT_YUBIKEY_SLOT")
+	_ = viper.BindEnv("yubikey_timeout", "VAULT_YUBIKEY_TIMEOUT")
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return errors.NewConfigLoadError("config.json", err)
@@ -82,6 +85,7 @@ func GetClipboardTimeout() int {
 func SaveConfig() error {
 	viper.Set("authtoken", Cfg.AuthToken)
 	viper.Set("yubikeyslot", Cfg.YubikeySlot)
+	viper.Set("yubikey_timeout", Cfg.YubikeyTimeout)
 	viper.Set("active_vault", Cfg.ActiveVault)
 	viper.Set("clipboard_timeout", Cfg.ClipboardTimeout)
 	viper.Set("vaults", Cfg.Vaults)

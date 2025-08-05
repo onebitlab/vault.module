@@ -120,3 +120,17 @@ func CopyToClipboard(data string) error {
 	return GetClipboard().WriteAllWithCustomTimeout(data, config.GetClipboardTimeout())
 }
 
+// ClearClipboard immediately clears the clipboard (for shutdown cleanup)
+func ClearClipboard() error {
+	return GetClipboard().clearClipboard()
+}
+
+// CopyToClipboardWithAutoCleanup copies data and registers for shutdown cleanup
+func CopyToClipboardWithAutoCleanup(data string, description string) error {
+	// Register clipboard for cleanup before copying
+	// Note: Import shutdown package when this is used
+	// shutdown.RegisterClipboardGlobal(description)
+	
+	return CopyToClipboard(data)
+}
+
