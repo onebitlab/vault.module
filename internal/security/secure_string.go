@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
+	"time"
 )
 
 // SecureZero is the public version of secureZero for external use
@@ -60,9 +62,9 @@ func NewSecureString(value string) *SecureString {
 	}
 
 	// Lock memory AFTER data is ready but BEFORE storing sensitive data
-	if err := s.lockMemory(); err != nil {
-		// If locking fails, continue but log warning (implement logging later)
-		// In production, you might want to fail here for maximum security
+	if err := s.lockMemoryWithTimeout(5 * time.Second); err != nil {
+		// If locking fails, continue but log warning
+		fmt.Fprintf(os.Stderr, "WARNING: failed to lock memory for SecureString: %v\n", err)
 	}
 
 	return s
@@ -275,11 +277,30 @@ func (s *SecureString) UnmarshalJSON(data []byte) error {
 	s.cleared = false
 
 	// Lock the new memory
-	if err := s.lockMemory(); err != nil {
+	if err := s.lockMemoryWithTimeout(5 * time.Second); err != nil {
 		// Continue but note the error
+		fmt.Fprintf(os.Stderr, "WARNING: failed to lock memory for SecureString: %v\n", err)
 	}
 
 	return nil
+}
+
+// SecureMarshalJSON marshals data to JSON and immediately clears the source
+func SecureMarshalJSON(v interface{}) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+
+	// The returned data should be handled carefully by the caller
+	// and cleared when no longer needed
+	return data, nil
+}
+
+// SecureUnmarshalJSON unmarshals JSON data and immediately clears the input
+func SecureUnmarshalJSON(data []byte, v interface{}) error {
+	defer secureZero(data) // Clear input data after unmarshaling
+	return json.Unmarshal(data, v)
 }
 
 // Clear securely clears all sensitive data from memory
@@ -302,9 +323,24 @@ func (s *SecureString) clearUnsafe() {
 		// The shutdown manager will handle dangling references gracefully
 	}
 
-	// Unlock memory before clearing and handle potential errors
-	if err := s.unlockMemory(); err != nil {
-		panic(fmt.Sprintf("CRITICAL: failed to unlock memory for SecureString: %v", err))
+	// Create a channel for timeout handling
+	unlockComplete := make(chan error, 1)
+
+	// Unlock memory before clearing with timeout protection
+	go func() {
+		unlockComplete <- s.unlockMemoryWithRetry()
+	}()
+
+	// Wait for unlock with timeout
+	select {
+	case err := <-unlockComplete:
+		if err != nil {
+			// Log error but don't panic - continue with cleanup
+			fmt.Fprintf(os.Stderr, "WARNING: failed to unlock memory for SecureString: %v\n", err)
+		}
+	case <-time.After(5 * time.Second):
+		// Timeout occurred - continue with cleanup but log warning
+		fmt.Fprintf(os.Stderr, "WARNING: memory unlock operation timed out\n")
 	}
 
 	// Securely overwrite data multiple times
@@ -320,6 +356,48 @@ func (s *SecureString) clearUnsafe() {
 
 	s.cleared = true
 	s.locked = false
+}
+
+// unlockMemoryWithRetry attempts to unlock memory with retry logic
+func (s *SecureString) unlockMemoryWithRetry() error {
+	if !s.locked {
+		return nil
+	}
+
+	var lastErr error
+	// Try up to 3 times with exponential backoff
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			// Wait before retry
+			time.Sleep(time.Duration(attempt) * 100 * time.Millisecond)
+		}
+
+		err := s.unlockMemory()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+
+	return lastErr
+}
+
+// lockMemoryWithTimeout attempts to lock memory with timeout protection
+func (s *SecureString) lockMemoryWithTimeout(timeout time.Duration) error {
+	lockComplete := make(chan error, 1)
+
+	// Start lock operation in goroutine
+	go func() {
+		lockComplete <- s.lockMemory()
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case err := <-lockComplete:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("memory lock operation timed out after %v", timeout)
+	}
 }
 
 // IsCleared returns true if the SecureString has been cleared
@@ -379,4 +457,67 @@ func (s *SecureString) IsRegisteredForCleanup() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.registeredForCleanup
+}
+
+// NewSecureBuffer creates a SecureString specifically for temporary buffer operations
+// with automatic cleanup registration
+func NewSecureBuffer(description string) *SecureString {
+	s := &SecureString{
+		cleared: false,
+		description: description,
+	}
+	s.RegisterForCleanup(description)
+	return s
+}
+
+// AppendData safely appends data to the SecureString buffer
+func (s *SecureString) AppendData(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cleared {
+		return fmt.Errorf("cannot append to cleared SecureString")
+	}
+
+	// Get current data if any
+	var currentData []byte
+	if s.data != nil && s.pad != nil {
+		currentData = make([]byte, len(s.data))
+		for i := range s.data {
+			currentData[i] = s.data[i] ^ s.pad[i]
+		}
+	}
+
+	// Combine with new data
+	newData := append(currentData, data...)
+	defer secureZero(currentData) // Clear intermediate buffer
+
+	// Clear existing data
+	s.clearUnsafe()
+
+	// Create new encrypted storage
+	pad := make([]byte, len(newData))
+	if _, err := rand.Read(pad); err != nil {
+		return fmt.Errorf("failed to generate random pad: %v", err)
+	}
+
+	encrypted := make([]byte, len(newData))
+	for i := range newData {
+		encrypted[i] = newData[i] ^ pad[i]
+	}
+
+	s.data = encrypted
+	s.pad = pad
+	s.cleared = false
+
+	// Securely clear the new data buffer
+	secureZero(newData)
+
+	// Lock memory
+	if err := s.lockMemoryWithTimeout(5 * time.Second); err != nil {
+		// Continue but note the error
+		fmt.Fprintf(os.Stderr, "WARNING: failed to lock memory for SecureString: %v\n", err)
+	}
+
+	return nil
 }

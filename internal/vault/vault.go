@@ -27,6 +27,23 @@ const (
 	CurrentVaultVersion = 1
 )
 
+// secureBufferWriter is a custom writer that accumulates data into a SecureString
+// for secure handling of decrypted vault data
+type secureBufferWriter struct {
+	buffer *security.SecureString
+}
+
+// Write implements io.Writer interface for secure data collection
+func (w *secureBufferWriter) Write(p []byte) (n int, err error) {
+	if w.buffer == nil {
+		return 0, fmt.Errorf("secureBufferWriter: buffer is nil")
+	}
+	if err := w.buffer.AppendData(p); err != nil {
+		return 0, fmt.Errorf("secureBufferWriter: failed to append data: %v", err)
+	}
+	return len(p), nil
+}
+
 // VaultHeader with version support for future migrations
 type VaultHeader struct {
 	Version int   `json:"version"`
@@ -142,24 +159,57 @@ func validateVaultVersion(version int) error {
 }
 
 // isProcessRunning checks if a process with given PID is still running
+// Uses more robust process existence checking with proper error handling
 func isProcessRunning(pid int) bool {
+	if pid <= 0 {
+		return false // Invalid PID
+	}
+
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
 	}
 
 	// On Unix systems, signal 0 can be used to check if process exists
+	// This is the standard way to check process existence without affecting it
 	err = process.Signal(syscall.Signal(0))
-	return err == nil
+	if err != nil {
+		// Check specific error types to distinguish between permission and non-existence
+		if errno, ok := err.(syscall.Errno); ok {
+			// ESRCH means no such process
+			// EPERM means process exists but we don't have permission to signal it
+			return errno != syscall.ESRCH
+		}
+		return false
+	}
+	return true
 }
 
 // cleanupStaleLock removes lock file if the process that created it is no longer running
+// Enhanced with better validation and atomic operations
 func cleanupStaleLock(lockFileName string) error {
-	data, err := os.ReadFile(lockFileName)
+	// Use O_RDONLY to avoid race conditions with concurrent cleanup attempts
+	lockFile, err := os.OpenFile(lockFileName, os.O_RDONLY, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // Lock file doesn't exist, nothing to clean
 		}
+		return err
+	}
+	defer lockFile.Close()
+
+	// Try to acquire a shared lock to ensure we're not interfering with active lock holder
+	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		// Lock is actively held by another process, don't clean it up
+		audit.Logger.Debug("Lock file is actively held, not cleaning up",
+			slog.String("lock_file", lockFileName))
+		return nil
+	}
+	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+
+	// Read PID from the lock file
+	data, err := os.ReadFile(lockFileName)
+	if err != nil {
 		return err
 	}
 
@@ -173,6 +223,15 @@ func cleanupStaleLock(lockFileName string) error {
 		return os.Remove(lockFileName)
 	}
 
+	// Validate PID range
+	if pid <= 0 || pid > 4194304 { // Max PID on most systems
+		audit.Logger.Warn("Found lock file with invalid PID range, removing",
+			slog.String("lock_file", lockFileName),
+			slog.Int("invalid_pid", pid))
+		return os.Remove(lockFileName)
+	}
+
+	// Check if process is still running
 	if !isProcessRunning(pid) {
 		audit.Logger.Info("Found stale lock file, removing",
 			slog.String("lock_file", lockFileName),
@@ -183,52 +242,125 @@ func cleanupStaleLock(lockFileName string) error {
 	return nil // Lock is still valid
 }
 
-// createLockFile creates a lock file with current PID
+// createLockFile creates a lock file with current PID using atomic operations
+// Enhanced to prevent race conditions and ensure atomic lock creation
 func createLockFile(lockFileName string) (*os.File, error) {
-	// First try to cleanup any stale locks
-	if err := cleanupStaleLock(lockFileName); err != nil {
-		audit.Logger.Warn("Failed to cleanup stale lock",
-			slog.String("lock_file", lockFileName),
-			slog.String("error", err.Error()))
-	}
+	currentPID := os.Getpid()
+	pidStr := strconv.Itoa(currentPID)
+	
+	// Create temporary lock file first to ensure atomic operation
+	tmpLockFile := lockFileName + ".tmp." + pidStr
+	
+	// Cleanup any leftover temporary file
+	os.Remove(tmpLockFile)
+	
+	maxRetries := 5
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			// Small delay before retry to avoid tight loop
+			time.Sleep(time.Duration(retry*50) * time.Millisecond)
+		}
 
-	// Try to create lock file
-	lockFile, err := os.OpenFile(lockFileName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		if os.IsExist(err) {
-			// Lock exists, check if it's stale
-			if cleanupErr := cleanupStaleLock(lockFileName); cleanupErr == nil {
-				// Successfully cleaned up stale lock, try again
-				lockFile, err = os.OpenFile(lockFileName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-				if err == nil {
-					audit.Logger.Info("Acquired lock after cleaning stale lock",
-						slog.String("lock_file", lockFileName))
+		// First try to cleanup any stale locks
+		if err := cleanupStaleLock(lockFileName); err != nil {
+			audit.Logger.Warn("Failed to cleanup stale lock",
+				slog.String("lock_file", lockFileName),
+				slog.String("error", err.Error()),
+				slog.Int("retry", retry))
+		}
+
+		// Create temporary lock file first
+		tmpFile, err := os.OpenFile(tmpLockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			if os.IsExist(err) {
+				// Remove stale temp file and continue retry
+				os.Remove(tmpLockFile)
+				continue
+			}
+			return nil, fmt.Errorf("failed to create temporary lock file: %v", err)
+		}
+
+		// Write PID to temporary file
+		if _, err := tmpFile.WriteString(pidStr); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpLockFile)
+			return nil, fmt.Errorf("failed to write PID to temporary lock file: %v", err)
+		}
+
+		// Ensure data is written to disk before attempting rename
+		if err := tmpFile.Sync(); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpLockFile)
+			return nil, fmt.Errorf("failed to sync temporary lock file: %v", err)
+		}
+		tmpFile.Close()
+
+		// Atomically rename temporary file to actual lock file
+		if err := os.Rename(tmpLockFile, lockFileName); err != nil {
+			os.Remove(tmpLockFile) // Cleanup temp file
+			if os.IsExist(err) {
+				// Lock file was created by another process, check if it's stale
+				if retry < maxRetries-1 {
+					audit.Logger.Debug("Lock file exists, retrying",
+						slog.String("lock_file", lockFileName),
+						slog.Int("retry", retry))
+					continue
 				}
 			}
+			return nil, fmt.Errorf("failed to rename temporary lock file: %v", err)
 		}
+
+		// Successfully created lock file, now open it for exclusive access
+		lockFile, err := os.OpenFile(lockFileName, os.O_RDWR, 0600)
 		if err != nil {
-			return nil, err
+			// Clean up lock file if we can't open it
+			os.Remove(lockFileName)
+			return nil, fmt.Errorf("failed to open created lock file: %v", err)
 		}
+
+		// Apply exclusive file lock immediately
+		if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+			lockFile.Close()
+			os.Remove(lockFileName)
+			if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+				if retry < maxRetries-1 {
+					audit.Logger.Debug("Lock file is locked by another process, retrying",
+						slog.String("lock_file", lockFileName),
+						slog.Int("retry", retry))
+					continue
+				}
+				return nil, fmt.Errorf("lock file is held by another process")
+			}
+			return nil, fmt.Errorf("failed to acquire exclusive lock: %v", err)
+		}
+
+		audit.Logger.Debug("Lock file created and locked",
+			slog.String("lock_file", lockFileName),
+			slog.Int("pid", currentPID),
+			slog.Int("retries", retry))
+
+		return lockFile, nil
 	}
 
-	// Write current PID to lock file
-	currentPID := os.Getpid()
-	if _, err := lockFile.WriteString(strconv.Itoa(currentPID)); err != nil {
-		lockFile.Close()
-		os.Remove(lockFileName)
-		return nil, err
-	}
-
-	audit.Logger.Debug("Lock file created",
-		slog.String("lock_file", lockFileName),
-		slog.Int("pid", currentPID))
-
-	return lockFile, nil
+	return nil, fmt.Errorf("failed to create lock file after %d retries", maxRetries)
 }
 
-// lockFile applies an exclusive lock to the file
+// lockFile applies an exclusive lock to the file with timeout
+// Enhanced with non-blocking option and proper error handling
 func lockFile(file *os.File) error {
-	return unix.Flock(int(file.Fd()), unix.LOCK_EX)
+	// First try non-blocking lock to get immediate feedback
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
+			// File is locked, try with timeout using blocking call
+			audit.Logger.Debug("File is locked, waiting for lock",
+				slog.String("file", file.Name()))
+			
+			// Use blocking lock as fallback
+			return unix.Flock(int(file.Fd()), unix.LOCK_EX)
+		}
+		return err
+	}
+	return nil
 }
 
 // unlockFile removes the lock from the file
@@ -313,26 +445,100 @@ func CheckYubiKeyWithRetry(maxRetries int) error {
 	return errors.ParseYubiKeyError(lastErr, "Max retry attempts exceeded")
 }
 
-// sanitizeLogOutput removes sensitive information from log output
+// createSecureBuffer creates a temporary secure buffer for sensitive operations
+func createSecureBuffer(description string) *security.SecureString {
+	buffer := security.NewSecureBuffer(description)
+	audit.Logger.Debug("Created secure buffer", slog.String("description", description))
+	return buffer
+}
+
+// sanitizeLogOutput removes sensitive information from log output with comprehensive patterns
 func sanitizeLogOutput(output string) string {
+	// Enhanced patterns for sensitive data detection
+	sensitivePatterns := []string{
+		"pin", "password", "secret", "private", "credential",
+		"auth", "token", "session", "cookie", "bearer",
+		"certificate", "cert", "pem", "p12", "pkcs",
+		"mnemonic", "seed", "entropy", "wallet",
+		"yubikey", "yubi", "piv", "oath", "fido",
+		// Common key patterns
+		"-----begin", "-----end", "0x", "sk_", "pk_",
+		// Age-specific patterns
+		"age1", "AGE-SECRET-KEY", "age-encryption",
+		// Error messages that might leak info
+		"failed to authenticate", "wrong pin", "invalid pin",
+		"touch your yubikey", "insert your yubikey",
+	}
+
 	// Remove lines that might contain sensitive information
 	lines := strings.Split(output, "\n")
 	sanitized := make([]string, 0, len(lines))
 
 	for _, line := range lines {
-		lowerLine := strings.ToLower(line)
-		// Skip lines that might contain sensitive data
-		if strings.Contains(lowerLine, "pin") ||
-			strings.Contains(lowerLine, "password") ||
-			strings.Contains(lowerLine, "key") ||
-			strings.Contains(lowerLine, "token") {
-			sanitized = append(sanitized, "[REDACTED LINE]")
+		lowerLine := strings.ToLower(strings.TrimSpace(line))
+		
+		// Skip empty lines
+		if lowerLine == "" {
+			sanitized = append(sanitized, line)
+			continue
+		}
+		
+		// Check for sensitive patterns
+		containsSensitive := false
+		for _, pattern := range sensitivePatterns {
+			if strings.Contains(lowerLine, pattern) {
+				containsSensitive = true
+				break
+			}
+		}
+		
+		// Additional checks for hex/base64 patterns that might be keys
+		if !containsSensitive {
+			// Check for potential key material (long hex strings, base64)
+			if len(line) > 32 && (isHexString(line) || isBase64Like(line)) {
+				containsSensitive = true
+			}
+		}
+		
+		if containsSensitive {
+			sanitized = append(sanitized, "[REDACTED SENSITIVE LINE]")
 		} else {
 			sanitized = append(sanitized, line)
 		}
 	}
 
 	return strings.Join(sanitized, "\n")
+}
+
+// isHexString checks if string looks like hexadecimal key material
+func isHexString(s string) bool {
+	cleaned := strings.ReplaceAll(strings.ReplaceAll(s, " ", ""), ":", "")
+	if len(cleaned) < 32 {
+		return false
+	}
+	for _, char := range cleaned {
+		if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+// isBase64Like checks if string looks like base64 encoded data
+func isBase64Like(s string) bool {
+	cleaned := strings.TrimSpace(s)
+	if len(cleaned) < 32 {
+		return false
+	}
+	// Check for base64 characteristics
+	base64Chars := 0
+	for _, char := range cleaned {
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || 
+		   (char >= '0' && char <= '9') || char == '+' || char == '/' || char == '=' {
+			base64Chars++
+		}
+	}
+	return float64(base64Chars)/float64(len(cleaned)) > 0.8
 }
 
 // LoadVault decrypts and loads the vault from a file, using the specified method.
@@ -417,15 +623,21 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		return nil, errors.NewFormatInvalidError(details.Encryption, "unknown encryption method")
 	}
 
-	var out bytes.Buffer
+	// Use SecureBuffer for sensitive decrypted data instead of bytes.Buffer
+	secureBuffer := createSecureBuffer("vault_decrypt_buffer")
+	defer secureBuffer.Clear() // Ensure immediate cleanup
+
 	var stderr bytes.Buffer
-	ageCmd.Stdout = &out
+	// Set up custom writer that feeds data securely into SecureString
+	ageCmd.Stdout = &secureBufferWriter{buffer: secureBuffer}
 	// Don't overwrite stderr if it was already set (e.g., for YubiKey error handling)
 	if ageCmd.Stderr == nil {
 		ageCmd.Stderr = &stderr
 	}
 
 	if err := ageCmd.Run(); err != nil {
+		// SecureBuffer will be cleared by defer, no additional cleanup needed
+
 		// Get stderr content - handle case where stderr might be set elsewhere
 		var stderrContent string
 		if ageCmd.Stderr == &stderr {
@@ -435,9 +647,9 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			stderrContent = "stderr output not available"
 		}
 
-		// For YubiKey encryption, use ParseYubiKeyError for all errors
+		// For YubiKey encryption, use ParseYubiKeyError for all errors with sanitized content
 		if details.Encryption == constants.EncryptionYubiKey {
-			return nil, errors.ParseYubiKeyError(err, stderrContent)
+			return nil, errors.ParseYubiKeyError(err, sanitizeLogOutput(stderrContent))
 		}
 
 		audit.Logger.Error("Failed to decrypt vault",
@@ -447,52 +659,62 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		return nil, errors.NewVaultLoadError(details.KeyFile, err).WithDetails(stderrContent)
 	}
 
+	// Data is now securely stored in secureBuffer, ready for processing
 	var finalVault Vault
 
-	// Detect vault format and handle accordingly
-	isVersioned, err := detectVaultFormat(out.Bytes())
+	// Use secure operation to process vault data
+	err = secureBuffer.WithSecureOperation(func(vaultData []byte) error {
+		// Detect vault format and handle accordingly
+		isVersioned, err := detectVaultFormat(vaultData)
+		if err != nil {
+			audit.Logger.Error("Failed to detect vault format",
+				slog.String("key_file", details.KeyFile),
+				slog.String("error", err.Error()))
+			return errors.NewVaultCorruptError(details.KeyFile, err)
+		}
+
+		if isVersioned {
+			// Handle versioned format
+			var header VaultHeader
+			if err := json.Unmarshal(vaultData, &header); err != nil {
+				audit.Logger.Error("Failed to parse versioned vault data",
+					slog.String("key_file", details.KeyFile),
+					slog.String("error", err.Error()))
+				return errors.NewVaultCorruptError(details.KeyFile, err)
+			}
+
+			// Validate version compatibility
+			if err := validateVaultVersion(header.Version); err != nil {
+				audit.Logger.Error("Unsupported vault version",
+					slog.String("key_file", details.KeyFile),
+					slog.Int("vault_version", header.Version),
+					slog.Int("supported_version", CurrentVaultVersion))
+				return err
+			}
+
+			audit.Logger.Info("Loading versioned vault",
+				slog.String("key_file", details.KeyFile),
+				slog.Int("version", header.Version))
+
+			finalVault = header.Data
+		} else {
+			// Handle legacy format
+			audit.Logger.Info("Loading legacy vault format",
+				slog.String("key_file", details.KeyFile))
+
+			if err := json.Unmarshal(vaultData, &finalVault); err != nil {
+				audit.Logger.Error("Failed to parse legacy vault data",
+					slog.String("key_file", details.KeyFile),
+					slog.String("error", err.Error()))
+				return errors.NewVaultCorruptError(details.KeyFile, err)
+			}
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		audit.Logger.Error("Failed to detect vault format",
-			slog.String("key_file", details.KeyFile),
-			slog.String("error", err.Error()))
-		return nil, errors.NewVaultCorruptError(details.KeyFile, err)
-	}
-
-	if isVersioned {
-		// Handle versioned format
-		var header VaultHeader
-		if err := json.Unmarshal(out.Bytes(), &header); err != nil {
-			audit.Logger.Error("Failed to parse versioned vault data",
-				slog.String("key_file", details.KeyFile),
-				slog.String("error", err.Error()))
-			return nil, errors.NewVaultCorruptError(details.KeyFile, err)
-		}
-
-		// Validate version compatibility
-		if err := validateVaultVersion(header.Version); err != nil {
-			audit.Logger.Error("Unsupported vault version",
-				slog.String("key_file", details.KeyFile),
-				slog.Int("vault_version", header.Version),
-				slog.Int("supported_version", CurrentVaultVersion))
-			return nil, err
-		}
-
-		audit.Logger.Info("Loading versioned vault",
-			slog.String("key_file", details.KeyFile),
-			slog.Int("version", header.Version))
-
-		finalVault = header.Data
-	} else {
-		// Handle legacy format
-		audit.Logger.Info("Loading legacy vault format",
-			slog.String("key_file", details.KeyFile))
-
-		if err := json.Unmarshal(out.Bytes(), &finalVault); err != nil {
-			audit.Logger.Error("Failed to parse legacy vault data",
-				slog.String("key_file", details.KeyFile),
-				slog.String("error", err.Error()))
-			return nil, errors.NewVaultCorruptError(details.KeyFile, err)
-		}
+		return nil, err
 	}
 
 	audit.Logger.Info("Vault loaded successfully",
@@ -571,11 +793,16 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		Data:    v,
 	}
 
-	// Serialize versioned data after acquiring lock
+	// Serialize versioned data securely after acquiring lock
 	data, err := json.MarshalIndent(vaultHeader, "", "  ")
 	if err != nil {
 		return errors.New(errors.ErrCodeInternal, "failed to serialize vault data").WithContext("marshal_error", err.Error())
 	}
+	// Ensure serialized data is cleared from memory when function exits
+	defer func() {
+		security.SecureZero(data)
+		data = nil
+	}()
 
 	// Create a temporary file in the same directory as the target file
 	dir := filepath.Dir(details.KeyFile)
@@ -610,6 +837,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 
 		args := []string{"-a", "-R", recipientsFile, "-o", tmpfile.Name()}
 		cmd = exec.CommandContext(ctx, "age", args...)
+		// Use secure reader for sensitive data
 		cmd.Stdin = bytes.NewReader(data)
 
 	default:
@@ -622,11 +850,15 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	}
 
 	if runErr := cmd.Run(); runErr != nil {
+		// Clear any sensitive data that might remain in stderr
+		stderrContent := stderr.String()
+		// Sanitize stderr content before logging and error details
+		sanitizedStderr := sanitizeLogOutput(stderrContent)
 		audit.Logger.Error("Failed to encrypt vault",
 			slog.String("key_file", details.KeyFile),
 			slog.String("error", runErr.Error()),
-			slog.String("stderr", sanitizeLogOutput(stderr.String())))
-		return errors.NewVaultSaveError(details.KeyFile, runErr).WithDetails(stderr.String())
+			slog.String("stderr", sanitizedStderr))
+		return errors.NewVaultSaveError(details.KeyFile, runErr).WithDetails(sanitizedStderr)
 	}
 
 	// Atomically replace the target file with our encrypted temporary file

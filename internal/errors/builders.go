@@ -249,7 +249,7 @@ func FromValidationError(field, value, message string) *VaultError {
 	return NewConfigValidationError(field, value, message)
 }
 
-// ParseYubiKeyError converts YubiKey plugin errors to VaultError
+// ParseYubiKeyError converts YubiKey plugin errors to VaultError with sanitized output
 func ParseYubiKeyError(cause error, stderr string) *VaultError {
 	stderrStr := strings.ToLower(stderr)
 
@@ -261,5 +261,48 @@ func ParseYubiKeyError(cause error, stderr string) *VaultError {
 		return NewYubikeyNotFoundError()
 	}
 
-	return NewYubikeyConfigError(stderr)
+	// Always sanitize stderr content before including in error details
+	// Note: stderr should already be sanitized by caller, but double-check for safety
+	sanitizedStderr := sanitizeYubikeyErrorOutput(stderr)
+	return NewYubikeyConfigError(sanitizedStderr)
+}
+
+// sanitizeYubikeyErrorOutput provides additional sanitization specifically for YubiKey errors
+func sanitizeYubikeyErrorOutput(output string) string {
+	// YubiKey-specific sensitive patterns
+	sensitivePatterns := []string{
+		"pin", "piv", "oath", "fido", "certificate",
+		"private key", "public key", "secret", "credential",
+		"age1", "yubikey identity", "slot",
+		"touch", "user presence", "authenticate",
+	}
+	
+	lines := strings.Split(output, "\n")
+	sanitized := make([]string, 0, len(lines))
+	
+	for _, line := range lines {
+		lowerLine := strings.ToLower(strings.TrimSpace(line))
+		
+		if lowerLine == "" {
+			sanitized = append(sanitized, line)
+			continue
+		}
+		
+		containsSensitive := false
+		for _, pattern := range sensitivePatterns {
+			if strings.Contains(lowerLine, pattern) {
+				containsSensitive = true
+				break
+			}
+		}
+		
+		if containsSensitive {
+			sanitized = append(sanitized, "[REDACTED YUBIKEY INFO]")
+		} else {
+			// Keep general error messages that don't contain sensitive info
+			sanitized = append(sanitized, line)
+		}
+	}
+	
+	return strings.Join(sanitized, "\n")
 }

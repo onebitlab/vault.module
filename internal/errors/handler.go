@@ -2,8 +2,10 @@
 package errors
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"vault.module/internal/audit"
 	"vault.module/internal/colors"
@@ -53,9 +55,10 @@ func (h *Handler) HandleWithExit(err error) {
 	}
 }
 
-// logError logs the error with appropriate level based on severity
+// logError logs the error with appropriate level based on severity and sanitizes sensitive content
 func (h *Handler) logError(vErr *VaultError) {
-	attrs := vErr.ToSlogAttrs()
+	// Sanitize error attributes before logging for sensitive error types
+	attrs := h.sanitizeErrorAttributes(vErr)
 
 	switch vErr.Severity {
 	case SeverityInfo:
@@ -69,6 +72,92 @@ func (h *Handler) logError(vErr *VaultError) {
 	default:
 		h.logger.LogAttrs(nil, slog.LevelError, "Unknown severity error", attrs...)
 	}
+}
+
+// sanitizeErrorAttributes sanitizes sensitive information in error attributes before logging
+func (h *Handler) sanitizeErrorAttributes(vErr *VaultError) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String("error_code", string(vErr.Code)),
+		slog.String("error_message", vErr.Message),
+		slog.String("severity", string(vErr.Severity)),
+	}
+
+	// Sanitize details for sensitive error types
+	if vErr.Details != "" {
+		sanitizedDetails := vErr.Details
+		// Apply extra sanitization for YubiKey-related errors
+		if isYubiKeyRelatedError(vErr.Code) {
+			sanitizedDetails = h.sanitizeYubiKeyDetails(vErr.Details)
+		}
+		attrs = append(attrs, slog.String("details", sanitizedDetails))
+	}
+
+	if vErr.Cause != nil {
+		// Sanitize the cause error message as well
+		causeMsg := vErr.Cause.Error()
+		if isYubiKeyRelatedError(vErr.Code) {
+			causeMsg = h.sanitizeYubiKeyDetails(causeMsg)
+		}
+		attrs = append(attrs, slog.String("cause", causeMsg))
+	}
+
+	// Add context as individual attributes with sanitization
+	for key, value := range vErr.Context {
+		// Convert value to string for sanitization if needed
+		valueStr := fmt.Sprintf("%v", value)
+		if isYubiKeyRelatedError(vErr.Code) && isSensitiveContextKey(key) {
+			valueStr = "[REDACTED]"
+		}
+		attrs = append(attrs, slog.Any(fmt.Sprintf("ctx_%s", key), valueStr))
+	}
+
+	return attrs
+}
+
+// isYubiKeyRelatedError checks if error code is related to YubiKey operations
+func isYubiKeyRelatedError(code ErrorCode) bool {
+	return code == ErrCodeYubikeyNotFound ||
+		code == ErrCodeYubikeyAuth ||
+		code == ErrCodeYubikeyConfig ||
+		code == ErrCodeAuthFailed
+}
+
+// isSensitiveContextKey checks if context key might contain sensitive information
+func isSensitiveContextKey(key string) bool {
+	lowerKey := strings.ToLower(key)
+	sensitiveKeys := []string{
+		"pin", "password", "key", "secret", "token",
+		"credential", "auth", "session", "identity",
+		"stderr", "output", "response",
+	}
+	
+	for _, sensitiveKey := range sensitiveKeys {
+		if strings.Contains(lowerKey, sensitiveKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeYubiKeyDetails applies YubiKey-specific sanitization to error details
+func (h *Handler) sanitizeYubiKeyDetails(details string) string {
+	// Use similar logic to sanitizeYubikeyErrorOutput
+	sensitivePatterns := []string{
+		"pin", "piv", "oath", "fido", "certificate",
+		"private key", "public key", "secret", "credential",
+		"age1", "yubikey identity", "slot",
+		"touch", "user presence", "authenticate",
+		"-----begin", "-----end",
+	}
+	
+	lowerDetails := strings.ToLower(details)
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(lowerDetails, pattern) {
+			return "[REDACTED YUBIKEY ERROR DETAILS]"
+		}
+	}
+	
+	return details
 }
 
 // FormatForUser formats error for user display

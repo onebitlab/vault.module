@@ -48,9 +48,10 @@ func (s *SecureString) lockMemory() error {
 	return nil
 }
 
-func (s *SecureString) unlockMemory() {
+func (s *SecureString) unlockMemory() error {
 	// No platform-specific memory unlocking needed
 	s.locked = false
+	return nil
 }
 
 // SecureClearBytes securely clears sensitive data from a byte slice
