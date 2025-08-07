@@ -89,7 +89,7 @@ func SaveConfig() error {
 	viper.Set("active_vault", Cfg.ActiveVault)
 	viper.Set("clipboard_timeout", Cfg.ClipboardTimeout)
 	viper.Set("vaults", Cfg.Vaults)
-	if err := os.MkdirAll(".", 0755); err != nil {
+	if err := os.MkdirAll(".", 0700); err != nil {
 		return errors.FromOSError(err, ".")
 	}
 	if err := viper.WriteConfigAs("config.json"); err != nil {

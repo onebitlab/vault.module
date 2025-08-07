@@ -21,6 +21,10 @@ const (
 	defaultClipboardTimeout = 30
 	maxClipboardTimeout     = 3600 // 1 hour maximum
 	minClipboardTimeout     = 1    // 1 second minimum
+	// Input validation constants
+	maxPrefixLength         = 32   // Maximum prefix length
+	maxFieldLength          = 32   // Maximum field length
+	maxIndexValue           = 999  // Maximum index value
 )
 
 var getIndex int
@@ -49,7 +53,12 @@ Examples:
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return errors.WrapCommand(func() error {
-			// Validate input parameters
+		// Validate command arguments first
+		if err := validateGetCommandArgs(args); err != nil {
+		return err
+		}
+
+		// Validate input parameters
 			if err := validateGetCommandInputs(); err != nil {
 				return err
 			}
@@ -191,7 +200,7 @@ Examples:
 
 // validateGetCommandInputs validates input parameters for the get command
 func validateGetCommandInputs() error {
-	// Validate clipboard timeout range
+	// Validate clipboard timeout range with overflow protection
 	if getClipboardTimeout < minClipboardTimeout {
 		return errors.NewInvalidInputError(
 			fmt.Sprintf("%d", getClipboardTimeout),
@@ -205,11 +214,100 @@ func validateGetCommandInputs() error {
 		)
 	}
 
-	// Validate address index (must be non-negative)
+	// Additional overflow protection for timeout value
+	if getClipboardTimeout < 0 {
+		return errors.NewInvalidInputError(
+			fmt.Sprintf("%d", getClipboardTimeout),
+			"clipboard timeout cannot be negative (potential overflow)",
+		)
+	}
+
+	// Validate address index (must be non-negative and within reasonable range)
 	if getIndex < 0 {
 		return errors.NewInvalidInputError(
 			fmt.Sprintf("%d", getIndex),
 			"address index must be non-negative",
+		)
+	}
+	if getIndex > maxIndexValue {
+		return errors.NewInvalidInputError(
+			fmt.Sprintf("%d", getIndex),
+			fmt.Sprintf("address index must be at most %d", maxIndexValue),
+		)
+	}
+
+	return nil
+}
+
+// validateGetCommandArgs validates command line arguments
+func validateGetCommandArgs(args []string) error {
+	if len(args) != 2 {
+		return errors.NewInvalidInputError(
+			fmt.Sprintf("%d arguments", len(args)),
+			"exactly 2 arguments required: <PREFIX> <FIELD>",
+		)
+	}
+
+	prefix := args[0]
+	field := args[1]
+
+	// Validate prefix length and content
+	if len(prefix) == 0 {
+		return errors.NewInvalidInputError(prefix, "prefix cannot be empty")
+	}
+	if len(prefix) > maxPrefixLength {
+		return errors.NewInvalidInputError(
+			prefix,
+			fmt.Sprintf("prefix length must be at most %d characters", maxPrefixLength),
+		)
+	}
+
+	// Validate prefix content (alphanumeric and basic symbols only)
+	for _, char := range prefix {
+		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || 
+			(char >= '0' && char <= '9') || char == '_' || char == '-') {
+			return errors.NewInvalidInputError(
+				prefix,
+				"prefix can only contain alphanumeric characters, underscores, and hyphens",
+			)
+		}
+	}
+
+	// Validate field length and content
+	if len(field) == 0 {
+		return errors.NewInvalidInputError(field, "field cannot be empty")
+	}
+	if len(field) > maxFieldLength {
+		return errors.NewInvalidInputError(
+			field,
+			fmt.Sprintf("field length must be at most %d characters", maxFieldLength),
+		)
+	}
+
+	// Validate field content (lowercase letters only)
+	for _, char := range strings.ToLower(field) {
+		if !((char >= 'a' && char <= 'z')) {
+			return errors.NewInvalidInputError(
+				field,
+				"field can only contain alphabetic characters",
+			)
+		}
+	}
+
+	// Validate field is one of allowed values
+	allowedFields := []string{"address", "privatekey", "mnemonic", "notes"}
+	fieldLower := strings.ToLower(field)
+	validField := false
+	for _, allowed := range allowedFields {
+		if fieldLower == allowed {
+			validField = true
+			break
+		}
+	}
+	if !validField {
+		return errors.NewInvalidInputError(
+			field,
+			fmt.Sprintf("unknown field '%s'. Available fields: %s", field, strings.Join(allowedFields, ", ")),
 		)
 	}
 

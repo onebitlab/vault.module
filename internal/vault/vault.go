@@ -202,7 +202,7 @@ func cleanupStaleLock(lockFileName string) error {
 	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
 		// Lock is actively held by another process, don't clean it up
 		audit.Logger.Debug("Lock file is actively held, not cleaning up",
-			slog.String("lock_file", lockFileName))
+			slog.String("lock_file", filepath.Base(lockFileName)))
 		return nil
 	}
 	defer unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
@@ -218,7 +218,7 @@ func cleanupStaleLock(lockFileName string) error {
 	if err != nil {
 		// Invalid PID format, assume stale and remove
 		audit.Logger.Warn("Found lock file with invalid PID format, removing",
-			slog.String("lock_file", lockFileName),
+			slog.String("lock_file", filepath.Base(lockFileName)),
 			slog.String("content", pidStr))
 		return os.Remove(lockFileName)
 	}
@@ -226,7 +226,7 @@ func cleanupStaleLock(lockFileName string) error {
 	// Validate PID range
 	if pid <= 0 || pid > 4194304 { // Max PID on most systems
 		audit.Logger.Warn("Found lock file with invalid PID range, removing",
-			slog.String("lock_file", lockFileName),
+			slog.String("lock_file", filepath.Base(lockFileName)),
 			slog.Int("invalid_pid", pid))
 		return os.Remove(lockFileName)
 	}
@@ -234,7 +234,7 @@ func cleanupStaleLock(lockFileName string) error {
 	// Check if process is still running
 	if !isProcessRunning(pid) {
 		audit.Logger.Info("Found stale lock file, removing",
-			slog.String("lock_file", lockFileName),
+			slog.String("lock_file", filepath.Base(lockFileName)),
 			slog.Int("stale_pid", pid))
 		return os.Remove(lockFileName)
 	}
@@ -264,7 +264,7 @@ func createLockFile(lockFileName string) (*os.File, error) {
 		// First try to cleanup any stale locks
 		if err := cleanupStaleLock(lockFileName); err != nil {
 			audit.Logger.Warn("Failed to cleanup stale lock",
-				slog.String("lock_file", lockFileName),
+				slog.String("lock_file", filepath.Base(lockFileName)),
 				slog.String("error", err.Error()),
 				slog.Int("retry", retry))
 		}
@@ -302,8 +302,8 @@ func createLockFile(lockFileName string) (*os.File, error) {
 				// Lock file was created by another process, check if it's stale
 				if retry < maxRetries-1 {
 					audit.Logger.Debug("Lock file exists, retrying",
-						slog.String("lock_file", lockFileName),
-						slog.Int("retry", retry))
+					slog.String("lock_file", filepath.Base(lockFileName)),
+					slog.Int("retry", retry))
 					continue
 				}
 			}
@@ -325,8 +325,8 @@ func createLockFile(lockFileName string) (*os.File, error) {
 			if err == syscall.EWOULDBLOCK || err == syscall.EAGAIN {
 				if retry < maxRetries-1 {
 					audit.Logger.Debug("Lock file is locked by another process, retrying",
-						slog.String("lock_file", lockFileName),
-						slog.Int("retry", retry))
+					slog.String("lock_file", filepath.Base(lockFileName)),
+					slog.Int("retry", retry))
 					continue
 				}
 				return nil, fmt.Errorf("lock file is held by another process")
@@ -335,7 +335,7 @@ func createLockFile(lockFileName string) (*os.File, error) {
 		}
 
 		audit.Logger.Debug("Lock file created and locked",
-			slog.String("lock_file", lockFileName),
+			slog.String("lock_file", filepath.Base(lockFileName)),
 			slog.Int("pid", currentPID),
 			slog.Int("retries", retry))
 
@@ -546,7 +546,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	// Validate the file path
 	if err := config.ValidateFilePath(details.KeyFile, "keyfile"); err != nil {
 		audit.Logger.Error("Failed to validate key file path",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()))
 		return nil, err
 	}
@@ -554,19 +554,19 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	if _, err := os.Stat(details.KeyFile); os.IsNotExist(err) {
 		// If the vault file doesn't exist, return a new, empty vault.
 		audit.Logger.Info("Vault file does not exist, creating new vault",
-			slog.String("key_file", details.KeyFile))
+			slog.String("key_file", filepath.Base(details.KeyFile)))
 		return make(Vault), nil
 	}
 
 	audit.Logger.Info("Loading vault",
-		slog.String("key_file", details.KeyFile),
+		slog.String("key_file", filepath.Base(details.KeyFile)),
 		slog.String("encryption", details.Encryption))
 
 	// Lock the file to prevent concurrent access during loading
 	file, err := os.OpenFile(details.KeyFile, os.O_RDONLY, 0600)
 	if err != nil {
 		audit.Logger.Error("Failed to open vault file for locking",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()))
 		return nil, errors.NewFileSystemError("open", details.KeyFile, err)
 	}
@@ -574,7 +574,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 
 	if err := lockFile(file); err != nil {
 		audit.Logger.Error("Failed to lock vault file",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()))
 		return nil, errors.NewVaultLockedError(details.KeyFile)
 	}
@@ -653,7 +653,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		}
 
 		audit.Logger.Error("Failed to decrypt vault",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()),
 			slog.String("stderr", sanitizeLogOutput(stderrContent)))
 		return nil, errors.NewVaultLoadError(details.KeyFile, err).WithDetails(stderrContent)
@@ -668,7 +668,7 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 		isVersioned, err := detectVaultFormat(vaultData)
 		if err != nil {
 			audit.Logger.Error("Failed to detect vault format",
-				slog.String("key_file", details.KeyFile),
+				slog.String("key_file", filepath.Base(details.KeyFile)),
 				slog.String("error", err.Error()))
 			return errors.NewVaultCorruptError(details.KeyFile, err)
 		}
@@ -678,34 +678,34 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 			var header VaultHeader
 			if err := json.Unmarshal(vaultData, &header); err != nil {
 				audit.Logger.Error("Failed to parse versioned vault data",
-					slog.String("key_file", details.KeyFile),
-					slog.String("error", err.Error()))
+				slog.String("key_file", filepath.Base(details.KeyFile)),
+				slog.String("error", err.Error()))
 				return errors.NewVaultCorruptError(details.KeyFile, err)
 			}
 
 			// Validate version compatibility
 			if err := validateVaultVersion(header.Version); err != nil {
 				audit.Logger.Error("Unsupported vault version",
-					slog.String("key_file", details.KeyFile),
-					slog.Int("vault_version", header.Version),
-					slog.Int("supported_version", CurrentVaultVersion))
+				slog.String("key_file", filepath.Base(details.KeyFile)),
+				slog.Int("vault_version", header.Version),
+				slog.Int("supported_version", CurrentVaultVersion))
 				return err
 			}
 
 			audit.Logger.Info("Loading versioned vault",
-				slog.String("key_file", details.KeyFile),
+				slog.String("key_file", filepath.Base(details.KeyFile)),
 				slog.Int("version", header.Version))
 
 			finalVault = header.Data
 		} else {
 			// Handle legacy format
 			audit.Logger.Info("Loading legacy vault format",
-				slog.String("key_file", details.KeyFile))
+				slog.String("key_file", filepath.Base(details.KeyFile)))
 
 			if err := json.Unmarshal(vaultData, &finalVault); err != nil {
 				audit.Logger.Error("Failed to parse legacy vault data",
-					slog.String("key_file", details.KeyFile),
-					slog.String("error", err.Error()))
+				slog.String("key_file", filepath.Base(details.KeyFile)),
+				slog.String("error", err.Error()))
 				return errors.NewVaultCorruptError(details.KeyFile, err)
 			}
 		}
@@ -718,8 +718,8 @@ func LoadVault(details config.VaultDetails) (Vault, error) {
 	}
 
 	audit.Logger.Info("Vault loaded successfully",
-		slog.String("key_file", details.KeyFile),
-		slog.Int("wallet_count", len(finalVault)))
+	slog.String("key_file", filepath.Base(details.KeyFile)),
+	slog.Int("wallet_count", len(finalVault)))
 	return finalVault, nil
 }
 
@@ -730,7 +730,7 @@ func createSecureTempFile(dir string) (*os.File, error) {
 		return nil, err
 	}
 
-	// Immediately set secure permissions
+	// Immediately set secure permissions (0600) for sensitive data
 	if err := tmpfile.Chmod(0600); err != nil {
 		os.Remove(tmpfile.Name())
 		return nil, err
@@ -742,14 +742,14 @@ func createSecureTempFile(dir string) (*os.File, error) {
 // SaveVault encrypts and saves the vault to a file atomically.
 func SaveVault(details config.VaultDetails, v Vault) error {
 	audit.Logger.Info("Saving vault",
-		slog.String("key_file", details.KeyFile),
+		slog.String("key_file", filepath.Base(details.KeyFile)),
 		slog.String("encryption", details.Encryption),
 		slog.Int("wallet_count", len(v)))
 
 	// Validate file paths
 	if err := config.ValidateFilePath(details.KeyFile, "keyfile"); err != nil {
 		audit.Logger.Error("Failed to validate key file path",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()))
 		return err
 	}
@@ -758,7 +758,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	if details.RecipientsFile != "" {
 		if err := config.ValidateFilePath(details.RecipientsFile, "recipients file"); err != nil {
 			audit.Logger.Error("Failed to validate recipients file path",
-				slog.String("recipients_file", details.RecipientsFile),
+				slog.String("recipients_file", filepath.Base(details.RecipientsFile)),
 				slog.String("error", err.Error()))
 			return err
 		}
@@ -778,14 +778,14 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		lockFile.Close()
 		if removeErr := os.Remove(lockFileName); removeErr != nil {
 			audit.Logger.Warn("Failed to remove lock file",
-				slog.String("lock_file", lockFileName),
+				slog.String("lock_file", filepath.Base(lockFileName)),
 				slog.String("error", removeErr.Error()))
 		} else {
-			audit.Logger.Debug("Lock file removed", slog.String("lock_file", lockFileName))
+			audit.Logger.Debug("Lock file removed", slog.String("lock_file", filepath.Base(lockFileName)))
 		}
 	}()
 
-	audit.Logger.Debug("Lock file created for save operation", slog.String("lock_file", lockFileName))
+	audit.Logger.Debug("Lock file created for save operation", slog.String("lock_file", filepath.Base(lockFileName)))
 
 	// Create versioned vault header
 	vaultHeader := VaultHeader{
@@ -855,7 +855,7 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 		// Sanitize stderr content before logging and error details
 		sanitizedStderr := sanitizeLogOutput(stderrContent)
 		audit.Logger.Error("Failed to encrypt vault",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", runErr.Error()),
 			slog.String("stderr", sanitizedStderr))
 		return errors.NewVaultSaveError(details.KeyFile, runErr).WithDetails(sanitizedStderr)
@@ -868,8 +868,8 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	// Atomically rename temp file to target file
 	if err := os.Rename(encryptedFile, details.KeyFile); err != nil {
 		audit.Logger.Error("Failed to atomically move encrypted file",
-			slog.String("key_file", details.KeyFile),
-			slog.String("temp_file", encryptedFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
+			slog.String("temp_file", filepath.Base(encryptedFile)),
 			slog.String("error", err.Error()))
 		return errors.NewFileSystemError("rename", encryptedFile, err).WithDetails("failed to atomically move encrypted file")
 	}
@@ -877,13 +877,13 @@ func SaveVault(details config.VaultDetails, v Vault) error {
 	// Set secure permissions for the final file
 	if err := os.Chmod(details.KeyFile, 0600); err != nil {
 		audit.Logger.Error("Failed to set secure permissions on final file",
-			slog.String("key_file", details.KeyFile),
+			slog.String("key_file", filepath.Base(details.KeyFile)),
 			slog.String("error", err.Error()))
 		// Don't return error as file is already saved
 	}
 
 	audit.Logger.Info("Vault saved successfully",
-		slog.String("key_file", details.KeyFile),
-		slog.Int("wallet_count", len(v)))
+	slog.String("key_file", filepath.Base(details.KeyFile)),
+	slog.Int("wallet_count", len(v)))
 	return nil
 }

@@ -111,7 +111,7 @@ Examples:
 			audit.Logger.Error("Executing plaintext export of an entire vault",
 				slog.String("command", "export"),
 				slog.String("vault", config.Cfg.ActiveVault),
-				slog.String("destination_file", outputFile),
+				slog.String("destination_file", filepath.Base(outputFile)), // Log only filename, not full path
 			)
 
 			jsonData, err := actions.ExportVault(v)
@@ -119,11 +119,11 @@ Examples:
 				return errors.NewExportFailedError("json", "failed to generate JSON for export", err)
 			}
 
-			if err := os.WriteFile(outputFile, jsonData, 0644); err != nil {
+			if err := os.WriteFile(outputFile, jsonData, 0600); err != nil {
 				return errors.NewFileSystemError("write", outputFile, err)
 			}
 
-			audit.Logger.Info("Plaintext export completed successfully", "destination_file", outputFile)
+			audit.Logger.Info("Plaintext export completed successfully", "destination_file", filepath.Base(outputFile)) // Log only filename, not full path
 			fmt.Println(colors.SafeColor(
 				fmt.Sprintf("All wallets (%d) from vault '%s' successfully exported to '%s'.", len(v), config.Cfg.ActiveVault, outputFile),
 				colors.Success,

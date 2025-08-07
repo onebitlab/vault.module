@@ -81,7 +81,7 @@ func SecureFileDelete(filePath string) error {
 	return nil
 }
 
-// SecureCreateTempFile creates a temporary file and registers it for cleanup
+// SecureCreateTempFile creates a temporary file with secure permissions and registers it for cleanup
 func SecureCreateTempFile(pattern string, content []byte) (string, error) {
 	// Create temporary file
 	tempFile, err := os.CreateTemp("", pattern)
@@ -90,6 +90,13 @@ func SecureCreateTempFile(pattern string, content []byte) (string, error) {
 	}
 
 	filePath := tempFile.Name()
+
+	// Immediately set secure permissions (0600) for sensitive data
+	if err := tempFile.Chmod(0600); err != nil {
+		tempFile.Close()
+		os.Remove(filePath) // Clean up on error
+		return "", fmt.Errorf("failed to set secure permissions on temp file: %v", err)
+	}
 
 	// Write content if provided
 	if len(content) > 0 {
